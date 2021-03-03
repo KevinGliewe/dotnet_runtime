@@ -22,7 +22,7 @@ string Get(string url)
     return client.GetStringAsync(url).Result;
 }
 
-var rex = @"<a href=""(?<href>\/download\/dotnet\/thank-you\/(?<type>[a-z-]+)-(?<version>[a-z0-9\.-]+)-(?<platform>[a-z]+)-(?<arch>[a-z]+[0-9]*)-(?<package>[a-z]+))"">[\w\d]+<\/a>";
+var rex = @"<a href=""(?<href>\/download\/dotnet\/thank-you\/(?<type>[a-z-]+)-(?<version>[a-z0-9\.-]+)-(?<platform>[a-z]+)-(?<arch>[a-z]+[0-9]*(-[a-z]+)?)-(?<package>[a-z]+))"">[\w\d]+<\/a>";
 
 var rexUrl = new Regex(@"<a class=""form-control text-left overflow-hidden"" id=""directLink"" href=""(?<uri>\S+)"" aria-label");
 var rexChecksum = new Regex(@"<input onClick=""this\.select\(\);"" id=""checksum"" type=""text"" class=""form-control"" readonly value=""(?<checksum>[a-z0-9]+)"" aria-labelledby=""checksum-label"" \/>");
