@@ -1,0 +1,42 @@
+name: Deploy Downloads DB
+
+# Run workflow on every push to the master branch
+on:
+  push:
+    branches: [ link-fetcher ]
+
+jobs:
+  deploy-to-downloads-db:
+    # use ubuntu-latest image to run steps on
+    runs-on: ubuntu-latest
+    steps:
+    # uses GitHub's checkout action to checkout code form the master branch
+    - uses: actions/checkout@v2
+
+    - name: Setup .NET 5 SDK
+      uses: actions/setup-dotnet@v1.6.0
+      with:
+        dotnet-version: 5.0.100
+      env:
+        ACTIONS_ALLOW_UNSECURE_COMMANDS: 'true'
+
+    - name: .NET Info
+      run: dotnet --info
+    
+    - name: Install dotnet-script
+      run: dotnet tool install -g dotnet-script
+
+    - name: .NET Tool Restore
+      run: dotnet tool restore
+
+    - name: Create json db
+      run: dotnet script main.csx
+      
+    - name: Commit
+      uses: JamesIves/github-pages-deploy-action@3.5.9
+      with:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        BRANCH: downloads-db
+        FOLDER: out
+      env:
+        ACTIONS_ALLOW_UNSECURE_COMMANDS: 'true'
