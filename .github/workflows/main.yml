@@ -4,6 +4,8 @@ name: Deploy Downloads DB
 on:
   push:
     branches: [ link-fetcher ]
+  schedule:
+    - cron: "0 0 * * *"
 
 jobs:
   deploy-to-downloads-db:
