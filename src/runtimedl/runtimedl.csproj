@@ -8,7 +8,7 @@
     <ToolCommandName>runtimedl</ToolCommandName>
     <PackageOutputPath>./nupkg</PackageOutputPath>
 
-    <VersionPrefix>1.0.1</VersionPrefix>
+    <VersionPrefix>1.0.2</VersionPrefix>
 
     <Authors>Kevin Gliewe</Authors>
     <Company>Gliewe.Net</Company>

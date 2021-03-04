@@ -1,10 +1,12 @@
 # runtimedl
 
+[![NuGet Package](https://img.shields.io/nuget/v/runtimedl.svg)](https://www.nuget.org/packages/runtimedl)
+
 A dotnet tool to download a .NET runtime.
 
 ## Installation
 
-´dotnet tool install --global runtimedl --version 1.0.1´
+´dotnet tool install --global runtimedl --version 1.0.2´
 
 ## Usage
 

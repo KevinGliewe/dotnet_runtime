@@ -16,7 +16,7 @@ namespace runtimedl
             RuntimeDB.RType runtimeType = RuntimeDB.RType.Runtime, 
             RuntimeDB.Platform platform = RuntimeDB.Platform.Local,
             RuntimeDB.Arch architecture = RuntimeDB.Arch.Local,
-            string version_pattern = @"^\d+\.\d+\.\d+$",
+            string versionPattern = @"^\d+\.\d+\.\d+$",
             DirectoryInfo output = null,
             bool download = true)
         {
@@ -46,12 +46,12 @@ namespace runtimedl
             Console.WriteLine("Runtime Type     : " + m_type);
             Console.WriteLine("Platform         : " + m_platform);
             Console.WriteLine("Architecture     : " + m_arch);
-            Console.WriteLine("Version Pattern  : " + version_pattern);
+            Console.WriteLine("Version Pattern  : " + versionPattern);
             Console.WriteLine("Output           : " + Path.GetFullPath(output.FullName));
 
             try {
                 var db = new RuntimeDB();
-                var entry = db.GetEntry(m_type, m_platform, m_arch, version_pattern);
+                var entry = db.GetEntry(m_type, m_platform, m_arch, versionPattern);
 
                 Console.WriteLine("Found Entry      :");
                 Console.WriteLine("  URL            : " + entry.url);
