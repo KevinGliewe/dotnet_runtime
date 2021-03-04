@@ -7,6 +7,21 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>runtimedl</ToolCommandName>
     <PackageOutputPath>./nupkg</PackageOutputPath>
+
+    <VersionPrefix>1.0.1</VersionPrefix>
+
+    <Authors>Kevin Gliewe</Authors>
+    <Company>Gliewe.Net</Company>
+    <Description>Dotnet tool to download a dotnet runtime</Description>
+    <RepositoryUrl>https://github.com/KevinGliewe/dotnet_runtime</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/KevinGliewe/dotnet_runtime/tree/runtimedl-tool</PackageProjectUrl>
+    <PackageLicenseUrl>https://github.com/KevinGliewe/dotnet_runtime/blob/master/LICENSE</PackageLicenseUrl>
+    <PackageTags>tool;runtime;download</PackageTags>
+    <PackageIconUrl>https://killergoldfisch.github.io/WebIconCollections/images/IconCollections/VisualStudioIcons/DownloadWebSetting.128.png</PackageIconUrl>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+
+    <DocumentationMarkdownUrl>https://raw.githubusercontent.com/KevinGliewe/dotnet_runtime/runtimedl-tool/README.md</DocumentationMarkdownUrl>
   </PropertyGroup>
 
   <ItemGroup>
