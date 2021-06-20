@@ -7,25 +7,6 @@
 #include <hostfxr.h>
 #include <coreclr_delegates.h>
 
-/*
-#include <limits.h>
-
-#if ((ULONG_MAX) == 0xffffffffUL)
-    # define IS32BIT
-    static_assert(sizeof(void *) == 4, "Error: The Arch is not what I think it is")
-#elif ((ULONG_MAX) == 0xffffffffffffffffUL)
-    # define IS64BIT
-    static_assert(sizeof(void *) == 8, "Error: The Arch is not what I think it is")
-#else
-    # error "Cannot determine the Arch"
-#endif
-
-#if !defined(IS64BIT)
-    # error "Only 64 bit runtime supported"
-#endif
-*/
-
-
 #if defined(WINDOWS) || defined(_WIN32) || defined(_WIN64)
     #include <Windows.h>    
 
@@ -42,6 +23,12 @@
     #if !defined(DOTNET_RUNTIME_DIR_SEPARATOR)
         # define DOTNET_RUNTIME_DIR_SEPARATOR DOTNET_RUNTIME_STR("\\")
     #endif
+
+    #if _WIN64
+        # define DOTNET_RUNTIME_ENV64BIT
+    #else
+        # define DOTNET_RUNTIME_ENV32BIT
+    #endif
 #else
     #include <dlfcn.h>
     #include <limits.h>
@@ -57,16 +44,24 @@
     #if !defined(DOTNET_RUNTIME_DIR_SEPARATOR)
         # define DOTNET_RUNTIME_DIR_SEPARATOR DOTNET_RUNTIME_STR("/")
     #endif
+
+    #if __x86_64__ || __ppc64__
+        # define DOTNET_RUNTIME_ENV64BIT
+    #else
+        # define DOTNET_RUNTIME_ENV32BIT
+    #endif
 #endif
 
-# define DOTNET_RUNTIME_VERSION DOTNET_RUNTIME_STR("5.0.3")
+#if !defined(DOTNET_RUNTIME_VERSION)
+    # define DOTNET_RUNTIME_VERSION "5.0.3"
+#endif
 
 #if !defined(DOTNET_RUNTIME_ARCH)
-    #if defined(_WIN32) && !defined(_WIN64)
+    #if defined(DOTNET_RUNTIME_ENV32BIT)
         # define DOTNET_RUNTIME_ARCH DOTNET_RUNTIME_STR("x86")
+    #elif defined(DOTNET_RUNTIME_ENV64BIT)
+        # define DOTNET_RUNTIME_ARCH DOTNET_RUNTIME_STR("x64")
     #endif
-
-    # define DOTNET_RUNTIME_ARCH DOTNET_RUNTIME_STR("x64")
 #endif
 
 #if defined(__WINDOWS__)
@@ -124,15 +119,15 @@ namespace dotnet_runtime
     namespace unicode
     {
         // https://stackoverflow.com/a/23920015
-        int is_surrogate(char16_t uc) { return (uc - 0xd800u) < 2048u; }
-        int is_high_surrogate(char16_t uc) { return (uc & 0xfffffc00) == 0xd800; }
-        int is_low_surrogate(char16_t uc) { return (uc & 0xfffffc00) == 0xdc00; }
+        inline int is_surrogate(char16_t uc) { return (uc - 0xd800u) < 2048u; }
+        inline int is_high_surrogate(char16_t uc) { return (uc & 0xfffffc00) == 0xd800; }
+        inline int is_low_surrogate(char16_t uc) { return (uc & 0xfffffc00) == 0xdc00; }
 
-        char32_t surrogate_to_utf32(char16_t high, char16_t low) { 
+        inline char32_t surrogate_to_utf32(char16_t high, char16_t low) { 
             return (high << 10) + low - 0x35fdc00; 
         }
 
-        void convert_utf16_to_utf32(const char16_t *input, 
+        inline void convert_utf16_to_utf32(const char16_t *input, 
                                 size_t input_size, 
                                 char32_t *output) 
         {
@@ -253,7 +248,7 @@ namespace dotnet_runtime
                 this->close_fptr(this->m_hHostFxrHandle);
         }
 
-        component_entry_point_fn GetComponentEntrypoint(const string_t a_sDllPath, const string_t a_sType, const string_t a_sMethod)
+        inline component_entry_point_fn GetComponentEntrypoint(const string_t a_sDllPath, const string_t a_sType, const string_t a_sMethod)
         {
             component_entry_point_fn entry_point = nullptr;
 
