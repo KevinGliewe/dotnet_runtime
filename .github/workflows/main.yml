@@ -1,9 +1,9 @@
 name: Deploy Downloads DB
 
-# Run workflow on every push to the master branch
+# Run workflow on every push to the link-fetcher branch
 on:
-  #push:
-  #  branches: [ link-fetcher ]
+  push:
+    branches: [ link-fetcher ]
   schedule:
     - cron: "0 2 * * *"
 
