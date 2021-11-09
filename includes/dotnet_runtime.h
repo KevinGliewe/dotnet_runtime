@@ -53,7 +53,7 @@
 #endif
 
 #if !defined(DOTNET_RUNTIME_VERSION)
-    # define DOTNET_RUNTIME_VERSION "5.0.3"
+    # define DOTNET_RUNTIME_VERSION "6.0.0"
 #endif
 
 #if !defined(DOTNET_RUNTIME_ARCH)
