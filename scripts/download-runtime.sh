@@ -2,7 +2,7 @@
 
 ARCHITECTURE="Local"
 PLATFORM="Local"
-VERSION="^5\.0\.3$"
+VERSION="6.0.0"
 
 POSITIONAL=()
 
