@@ -3,7 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
-using System.Text.RegularExpressions;
+
+using SemanticVersioning;
 
 namespace runtimedl
 {
@@ -55,10 +56,11 @@ namespace runtimedl
         public Entry GetEntry(string runtimeType, 
             string platform,
             string architecture,
-            string version) {
+            string version,
+            bool includePrerelease) {
             
             var m_type = runtimeType.ToString().ToLower().Replace('_', '-');
-            var m_version = version;
+            var m_version = new SemanticVersioning.Range(version);
             var m_platform = platform.ToString().ToLower().Replace('_', '-');
             var m_arch = architecture.ToString().ToLower().Replace('_', '-');
             var m_package = PACKAGE_TYPE;
@@ -68,16 +70,16 @@ namespace runtimedl
                 throw new Exception("Runtime type not found: " + m_type);
             var d_type = DB[m_type];
 
-            if(!d_type.ContainsKey(m_version))
+            var versionKey = string.Empty;
             foreach(var ver in d_type.Keys)
-                if(Regex.IsMatch(ver, version)){
-                    m_version = ver;
+                if(m_version.IsSatisfied(new SemanticVersioning.Version(ver), includePrerelease)){
+                    versionKey = ver;
                     break;
                 }
 
-            if(!d_type.ContainsKey(m_version))
+            if(!d_type.ContainsKey(versionKey))
                 throw new Exception("Version not found: " + m_version);
-            var d_version = d_type[m_version];
+            var d_version = d_type[versionKey];
 
             if(!d_version.ContainsKey(m_platform))
                 throw new Exception("Platform not found: " + m_platform);

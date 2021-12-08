@@ -5,6 +5,8 @@ using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Threading;
+using ICSharpCode.SharpZipLib.GZip;
+using ICSharpCode.SharpZipLib.Tar;
 using ShellProgressBar;
 
 namespace runtimedl
@@ -16,7 +18,8 @@ namespace runtimedl
             RuntimeDB.RType runtimeType = RuntimeDB.RType.Runtime, 
             RuntimeDB.Platform platform = RuntimeDB.Platform.Local,
             RuntimeDB.Arch architecture = RuntimeDB.Arch.Local,
-            string versionPattern = @"^\d+\.\d+\.\d+$",
+            string versionPattern = ">0.0.0",
+            bool includePrerelease = false,
             DirectoryInfo output = null,
             bool download = true)
         {
@@ -51,7 +54,7 @@ namespace runtimedl
 
             try {
                 var db = new RuntimeDB();
-                var entry = db.GetEntry(m_type, m_platform, m_arch, versionPattern);
+                var entry = db.GetEntry(m_type, m_platform, m_arch, versionPattern, includePrerelease);
 
                 Console.WriteLine("Found Entry      :");
                 Console.WriteLine("  URL            : " + entry.url);
@@ -131,11 +134,33 @@ namespace runtimedl
             if(archive.EndsWith(".zip"))
                 ZipFile.ExtractToDirectory(archive, dest, true);
             else if(archive.EndsWith(".tar"))
-                Tar.ExtractTar(archive, dest);
+                UnpackTar(archive, dest);
             else if(archive.EndsWith(".tar.gz"))
-                Tar.ExtractTarGz(archive, dest);
+                UnpackTarGz(archive, dest);
             else
                 throw new Exception("Unknown file extension : " + archive);
+        }
+
+        static void UnpackTar(string archive, string dest) {
+            Stream inStream = File.OpenRead(archive);
+
+            TarArchive tarArchive = TarArchive.CreateInputTarArchive(inStream, System.Text.Encoding.ASCII);
+            tarArchive.ExtractContents(dest);
+            tarArchive.Close();
+
+            inStream.Close();
+        }
+
+        static void UnpackTarGz(string archive, string dest) {
+            Stream inStream = File.OpenRead(archive);
+            Stream gzipStream = new GZipInputStream(inStream);
+
+            TarArchive tarArchive = TarArchive.CreateInputTarArchive(gzipStream, System.Text.Encoding.ASCII);
+            tarArchive.ExtractContents(dest);
+            tarArchive.Close();
+
+            gzipStream.Close();
+            inStream.Close();
         }
     }
 }
