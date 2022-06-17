@@ -17,12 +17,10 @@ jobs:
       uses: actions/checkout@v2
       with: { ref: link-fetcher }
 
-    - name: Setup .NET 5 SDK
-      uses: actions/setup-dotnet@v1.6.0
+    - name: Setup .NET 6 SDK
+      uses: actions/setup-dotnet@v2
       with:
-        dotnet-version: 5.0.100
-      env:
-        ACTIONS_ALLOW_UNSECURE_COMMANDS: 'true'
+        dotnet-version: '6.0.x'
 
     - name: .NET Info
       run: dotnet --info
