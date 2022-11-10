@@ -1,4 +1,4 @@
-#! "netcoreapp5.0"
+#! "netcoreapp6.0"
 
 #load "nuget:Dotnet.Build, 0.7.1"
 

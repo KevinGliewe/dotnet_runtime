@@ -13,12 +13,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     # uses GitHub's checkout action to checkout code form the master branch
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
 
-    - name: Setup .NET 5 SDK
-      uses: actions/setup-dotnet@v1.6.0
+    - name: Setup .NET 6 SDK
+      uses: actions/setup-dotnet@v3
       with:
-        dotnet-version: 5.0.100
+        dotnet-version: 6.0.x
       env:
         ACTIONS_ALLOW_UNSECURE_COMMANDS: 'true'
 
