@@ -41,7 +41,7 @@ class Entry {
 // All -> type -> version -> platform -> arch -> Entry
 var d_out = new Dictionary<string, Dictionary<string,Dictionary<string,Dictionary<string,Dictionary<string, Entry>>>>>();
 
-foreach(var major in new [] {"7.0", "6.0", "5.0"}) {
+foreach(var major in new [] {"8.0", "7.0", "6.0", "5.0"}) {
 
     foreach(Match match in Regex.Matches(Get(urlBase + "/download/dotnet/" + major), rex)) {
 
