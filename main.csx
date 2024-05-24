@@ -57,7 +57,7 @@ foreach(var major in new [] {"9.0", "8.0", "6.0"}) {
         Console.WriteLine(m_href);
 
         void ProcessEntry() {
-            Thread.Sleep(500);
+            Thread.Sleep(1000);
 
             var content = Get(urlBase + m_href);
 
@@ -92,6 +92,8 @@ foreach(var major in new [] {"9.0", "8.0", "6.0"}) {
             } catch(Exception ex) {
                 if(itry == 4)
                     throw ex;
+                if(itry > 1)
+                    Thread.Sleep(60000);
             }
         }
     }
