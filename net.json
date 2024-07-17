@@ -11684,6 +11684,16 @@
         }
       },
       "windows": {
+        "arm64": {
+          "installer": {
+            "url": "https://download.visualstudio.microsoft.com/download/pr/068d4d44-7491-47c0-8323-93af5e4a9670/bdc53f3b1471062a6228bca376a5b2f9/aspnetcore-runtime-9.0.0-preview.6.24328.4-win-arm64.exe",
+            "checksum": "17d77898cc0dbe726ed9db15903e1698f6a768b20a44409fb2f3527d5604f57b500fa5185bdc18932ce578406a887ee3fab9668866ff548ee8ad3a07d4c3c9cd"
+          },
+          "binaries": {
+            "url": "https://download.visualstudio.microsoft.com/download/pr/dffbe139-0a56-478f-85d9-72621e0cc3cc/9ca1aaeecc2fc48a2e55062ca7a3ab00/aspnetcore-runtime-9.0.0-preview.6.24328.4-win-arm64.zip",
+            "checksum": "87db6953ae3919633447cf598b449b1bfac80c7a1ca8be1cd573076a90de0e67e312180804a27b487737fd75b42a77bedac0232c5e399b1a5c5acddbea834d7a"
+          }
+        },
         "x64": {
           "installer": {
             "url": "https://download.visualstudio.microsoft.com/download/pr/5a516941-84be-4bbe-9fdb-3b9ad784acdd/eaed3af65bda0067f26fd8f1a1ebbccd/aspnetcore-runtime-9.0.0-preview.6.24328.4-win-x64.exe",
@@ -11702,12 +11712,6 @@
           "binaries": {
             "url": "https://download.visualstudio.microsoft.com/download/pr/e669318f-279a-4c59-9460-18c6dae7b637/884c1aabe8ca5a5d2b0d07f993904008/aspnetcore-runtime-9.0.0-preview.6.24328.4-win-x86.zip",
             "checksum": "c6ef82bbb4cd033183bc4e7938590ff595721e59cb80ec38a5b9d3985822972a027e1b18cf880161830a78e6b5cb3faff29ea71439fe4db6385002fdb4e5589c"
-          }
-        },
-        "arm64": {
-          "binaries": {
-            "url": "https://download.visualstudio.microsoft.com/download/pr/dffbe139-0a56-478f-85d9-72621e0cc3cc/9ca1aaeecc2fc48a2e55062ca7a3ab00/aspnetcore-runtime-9.0.0-preview.6.24328.4-win-arm64.zip",
-            "checksum": "87db6953ae3919633447cf598b449b1bfac80c7a1ca8be1cd573076a90de0e67e312180804a27b487737fd75b42a77bedac0232c5e399b1a5c5acddbea834d7a"
           }
         }
       }
@@ -11776,6 +11780,16 @@
         }
       },
       "windows": {
+        "arm64": {
+          "installer": {
+            "url": "https://download.visualstudio.microsoft.com/download/pr/c78c4ab8-5fad-4d72-b5c5-6edd4c51fa2d/2154d7e93cc29caa92df1f8d990a8ea8/aspnetcore-runtime-9.0.0-preview.5.24306.11-win-arm64.exe",
+            "checksum": "93c04f3dfd446180cf143d8839abba89f389b3def23489b249636cba3a7a032406066a0e6db67adb3f9a87897778ec11117599a6524b5e0b69b470edfee10314"
+          },
+          "binaries": {
+            "url": "https://download.visualstudio.microsoft.com/download/pr/8d13b17d-912a-4f52-bc64-05113d585ab3/40cab8f4d7efdf30ea9d5178e8f16de3/aspnetcore-runtime-9.0.0-preview.5.24306.11-win-arm64.zip",
+            "checksum": "6f49d789c314b1f3ead17d2c9870f5255cfe53871418ba626946b4128bde87d24c7427bc9176d98c528f458a69aa11ec016bd0e4a23a8f129351dde43a84de5b"
+          }
+        },
         "x64": {
           "installer": {
             "url": "https://download.visualstudio.microsoft.com/download/pr/33d48eed-15df-40b1-86db-86cfd602b8a9/f68eedd88c935d4e73028861f95f001b/aspnetcore-runtime-9.0.0-preview.5.24306.11-win-x64.exe",
@@ -11794,12 +11808,6 @@
           "binaries": {
             "url": "https://download.visualstudio.microsoft.com/download/pr/86db0409-ec32-4dc6-bcc9-d5534ec20220/b5ed337c859e403f4b33a31891e1cd22/aspnetcore-runtime-9.0.0-preview.5.24306.11-win-x86.zip",
             "checksum": "19d750ac6418996ae9bece2198ea576cba161bf5e4670f256ba2f17972f7bacbae35463bfbb40a32887739fa8b2dda906df395df150b356f2350e00279ad20bc"
-          }
-        },
-        "arm64": {
-          "binaries": {
-            "url": "https://download.visualstudio.microsoft.com/download/pr/8d13b17d-912a-4f52-bc64-05113d585ab3/40cab8f4d7efdf30ea9d5178e8f16de3/aspnetcore-runtime-9.0.0-preview.5.24306.11-win-arm64.zip",
-            "checksum": "6f49d789c314b1f3ead17d2c9870f5255cfe53871418ba626946b4128bde87d24c7427bc9176d98c528f458a69aa11ec016bd0e4a23a8f129351dde43a84de5b"
           }
         }
       }
@@ -11868,6 +11876,16 @@
         }
       },
       "windows": {
+        "arm64": {
+          "installer": {
+            "url": "https://download.visualstudio.microsoft.com/download/pr/92b6f660-9ac3-4f16-85ff-28e623f6d1d8/cc4895fbe24aeca773a1c1ad991c2d0a/aspnetcore-runtime-9.0.0-preview.4.24267.6-win-arm64.exe",
+            "checksum": "6e1aa5c31257030364e9140a6626e818f18f71f6cb3f14b7ae37f72200984069ad60020029bf3824ee46d1fbbe55d97b90f6e68cbac3d4060aed972c007ff536"
+          },
+          "binaries": {
+            "url": "https://download.visualstudio.microsoft.com/download/pr/accb26be-44e1-4940-8add-d51e6c3dfdb8/6514f378b6921d8cf43deaa94d803197/aspnetcore-runtime-9.0.0-preview.4.24267.6-win-arm64.zip",
+            "checksum": "412daab92de5b9eb2a27c2b2146ec4e56f422b512b4b61cba0d96e34059f59116715e4eeaae30c59c8c6c57562262ccda353a589f47e969a5d61c0d0b6119e3e"
+          }
+        },
         "x64": {
           "installer": {
             "url": "https://download.visualstudio.microsoft.com/download/pr/c4862573-61c6-491e-82c5-851c6e68e50b/6685d83ef28ca605014610d2302db83d/aspnetcore-runtime-9.0.0-preview.4.24267.6-win-x64.exe",
@@ -11886,12 +11904,6 @@
           "binaries": {
             "url": "https://download.visualstudio.microsoft.com/download/pr/51f63e30-95a8-4c1e-81b7-4da3b8d66c22/d56ec056ada0081cad7ffa34bc7461e7/aspnetcore-runtime-9.0.0-preview.4.24267.6-win-x86.zip",
             "checksum": "abd9d4c26dc916b8009d628bcb7d05d7688fd5ee2183adfca5323241b3b1a6bb299f383179659755c30197d14a33e1fb443e4acc26e0cdc79ace6e14f79dd8c7"
-          }
-        },
-        "arm64": {
-          "binaries": {
-            "url": "https://download.visualstudio.microsoft.com/download/pr/accb26be-44e1-4940-8add-d51e6c3dfdb8/6514f378b6921d8cf43deaa94d803197/aspnetcore-runtime-9.0.0-preview.4.24267.6-win-arm64.zip",
-            "checksum": "412daab92de5b9eb2a27c2b2146ec4e56f422b512b4b61cba0d96e34059f59116715e4eeaae30c59c8c6c57562262ccda353a589f47e969a5d61c0d0b6119e3e"
           }
         }
       }
@@ -12236,6 +12248,16 @@
         }
       },
       "windows": {
+        "arm64": {
+          "installer": {
+            "url": "https://download.visualstudio.microsoft.com/download/pr/21fa80b8-7132-497e-a44b-f25b6790ac37/512c8a433fcb462de3ff06dac0f651c7/aspnetcore-runtime-8.0.7-win-arm64.exe",
+            "checksum": "d54d9a1f344adc9f31d3bc4085fe977c55fde9e5c65c59a9ae3475ddf53ae4a15e0a6eea7dbcc211e02297530035f55f879dc777ad499e25b61b5be29d51e09d"
+          },
+          "binaries": {
+            "url": "https://download.visualstudio.microsoft.com/download/pr/c9015caa-2f1c-4eb3-a0c7-69fdca47bb7b/2d5d3957612f18c92f806fc73c999346/aspnetcore-runtime-8.0.7-win-arm64.zip",
+            "checksum": "e4443dec8f8c50ff61bb607447c662c48c05890946afe1a7dcddb956b94056d14bed60f455d0854b273c938c078c0b67f6cc3744216f7d4f199218a7898170ab"
+          }
+        },
         "x64": {
           "installer": {
             "url": "https://download.visualstudio.microsoft.com/download/pr/e7cd032b-21b3-4a9d-82cc-5249dd7fe092/00af1c24dd391c81df9d89cb737c9954/aspnetcore-runtime-8.0.7-win-x64.exe",
@@ -12254,12 +12276,6 @@
           "binaries": {
             "url": "https://download.visualstudio.microsoft.com/download/pr/168ffae8-e7c4-494c-9a2f-47e13c8ce5a4/01361017da1145dd454f12813d534768/aspnetcore-runtime-8.0.7-win-x86.zip",
             "checksum": "504f3738ba8c626477d22462d832e2f68f2ead4da66454a1c0dbe90af5c16411b01d8fc653d83879c20c837f2f44c406fb8a108ea88c24af7cdaa42710d6f176"
-          }
-        },
-        "arm64": {
-          "binaries": {
-            "url": "https://download.visualstudio.microsoft.com/download/pr/c9015caa-2f1c-4eb3-a0c7-69fdca47bb7b/2d5d3957612f18c92f806fc73c999346/aspnetcore-runtime-8.0.7-win-arm64.zip",
-            "checksum": "e4443dec8f8c50ff61bb607447c662c48c05890946afe1a7dcddb956b94056d14bed60f455d0854b273c938c078c0b67f6cc3744216f7d4f199218a7898170ab"
           }
         }
       }
@@ -12328,6 +12344,16 @@
         }
       },
       "windows": {
+        "arm64": {
+          "installer": {
+            "url": "https://download.visualstudio.microsoft.com/download/pr/ee1b10d3-aca1-4ae0-b74a-97bd30fa6d2d/87e7a62e9f5438342b66e673d422cd57/aspnetcore-runtime-8.0.6-win-arm64.exe",
+            "checksum": "894e98cfdd9cc7f6beb1f68c756eb474f8004a3e4020de9033d93d7d804c1273f0af77008ace9e972d133c461eabaa7a0502ed545f785a80c590c07ec243bb46"
+          },
+          "binaries": {
+            "url": "https://download.visualstudio.microsoft.com/download/pr/879b35cf-65fe-4072-9bc9-2aff035ed1e1/ecf45be70b47c7e53917237fad886bda/aspnetcore-runtime-8.0.6-win-arm64.zip",
+            "checksum": "4ee96bbba7308e672a6087e9f37da462c9fa30ff7288ff5e2c852d0af56a5592d3c947ac4072bb48f35064b63e265f4e3e377117b69b72c8345714ff640c1970"
+          }
+        },
         "x64": {
           "installer": {
             "url": "https://download.visualstudio.microsoft.com/download/pr/38b32fc8-8070-4f14-bd52-65505fddc5ff/50e6cf3b7505eee02c3b3db8ea46ffe3/aspnetcore-runtime-8.0.6-win-x64.exe",
@@ -12346,12 +12372,6 @@
           "binaries": {
             "url": "https://download.visualstudio.microsoft.com/download/pr/efe7c4fa-23d7-45b4-843e-ac8a466f18b9/178f4917f6b29edc149ebf404018b14d/aspnetcore-runtime-8.0.6-win-x86.zip",
             "checksum": "9e5ae375d1e7e6d58f62419285a8b087053ccbd997a670538fe11122febcc80a318814cec459044964fae78de95af21e188338ddebc5fb1e35addfcf788b5f2a"
-          }
-        },
-        "arm64": {
-          "binaries": {
-            "url": "https://download.visualstudio.microsoft.com/download/pr/879b35cf-65fe-4072-9bc9-2aff035ed1e1/ecf45be70b47c7e53917237fad886bda/aspnetcore-runtime-8.0.6-win-arm64.zip",
-            "checksum": "4ee96bbba7308e672a6087e9f37da462c9fa30ff7288ff5e2c852d0af56a5592d3c947ac4072bb48f35064b63e265f4e3e377117b69b72c8345714ff640c1970"
           }
         }
       }
