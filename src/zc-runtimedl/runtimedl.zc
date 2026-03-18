@@ -1,0 +1,750 @@
+// runtimedl - .NET Runtime Downloader
+// A cross-OS Actually Portable Executable (APE) built with Zen-C + cosmocc
+//
+// Downloads and extracts .NET runtimes from Microsoft's official releases.
+// Single binary runs on Linux, macOS, Windows, FreeBSD, OpenBSD, NetBSD.
+
+raw {
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <getopt.h>
+#include <sys/stat.h>
+#include <sys/utsname.h>
+#include <errno.h>
+#include "third_party/zlib/zlib.h"
+#include "cJSON.h"
+
+#define VERSION "1.0.0"
+#define RELEASES_INDEX_URL "https://dotnetcli.blob.core.windows.net/dotnet/release-metadata/releases-index.json"
+#define MAX_URL 2048
+#define MAX_PATH_LEN 4096
+
+// ============================================================================
+// Utility: fetch URL contents via curl
+// ============================================================================
+
+static char* fetch_url(const char* url, size_t* out_len) {
+    char cmd[MAX_URL + 128];
+    snprintf(cmd, sizeof(cmd), "curl -sL '%s' 2>/dev/null", url);
+    FILE *fp = popen(cmd, "r");
+    if (!fp) return NULL;
+    char *buf = NULL;
+    size_t total = 0, cap = 0;
+    char tmp[8192];
+    size_t n;
+    while ((n = fread(tmp, 1, sizeof(tmp), fp)) > 0) {
+        if (total + n >= cap) {
+            cap = (total + n) * 2 + 1;
+            buf = (char*)realloc(buf, cap);
+        }
+        memcpy(buf + total, tmp, n);
+        total += n;
+    }
+    int status = pclose(fp);
+    if (status != 0 || !buf || total == 0) {
+        free(buf);
+        if (out_len) *out_len = 0;
+        return NULL;
+    }
+    buf[total] = 0;
+    if (out_len) *out_len = total;
+    return buf;
+}
+
+// Download file to disk with progress bar
+static int download_file(const char* url, const char* dest) {
+    char cmd[MAX_URL + MAX_PATH_LEN + 256];
+    snprintf(cmd, sizeof(cmd),
+        "curl -L --progress-bar -o '%s' '%s'", dest, url);
+    printf("Downloading to %s\n", dest);
+    int ret = system(cmd);
+    return ret == 0 ? 0 : -1;
+}
+
+// ============================================================================
+// SHA-512 implementation
+// ============================================================================
+
+static const uint64_t sha512_k[80] = {
+    0x428a2f98d728ae22ULL,0x7137449123ef65cdULL,0xb5c0fbcfec4d3b2fULL,0xe9b5dba58189dbbcULL,
+    0x3956c25bf348b538ULL,0x59f111f1b605d019ULL,0x923f82a4af194f9bULL,0xab1c5ed5da6d8118ULL,
+    0xd807aa98a3030242ULL,0x12835b0145706fbeULL,0x243185be4ee4b28cULL,0x550c7dc3d5ffb4e2ULL,
+    0x72be5d74f27b896fULL,0x80deb1fe3b1696b1ULL,0x9bdc06a725c71235ULL,0xc19bf174cf692694ULL,
+    0xe49b69c19ef14ad2ULL,0xefbe4786384f25e3ULL,0x0fc19dc68b8cd5b5ULL,0x240ca1cc77ac9c65ULL,
+    0x2de92c6f592b0275ULL,0x4a7484aa6ea6e483ULL,0x5cb0a9dcbd41fbd4ULL,0x76f988da831153b5ULL,
+    0x983e5152ee66dfabULL,0xa831c66d2db43210ULL,0xb00327c898fb213fULL,0xbf597fc7beef0ee4ULL,
+    0xc6e00bf33da88fc2ULL,0xd5a79147930aa725ULL,0x06ca6351e003826fULL,0x142929670a0e6e70ULL,
+    0x27b70a8546d22ffcULL,0x2e1b21385c26c926ULL,0x4d2c6dfc5ac42aedULL,0x53380d139d95b3dfULL,
+    0x650a73548baf63deULL,0x766a0abb3c77b2a8ULL,0x81c2c92e47edaee6ULL,0x92722c851482353bULL,
+    0xa2bfe8a14cf10364ULL,0xa81a664bbc423001ULL,0xc24b8b70d0f89791ULL,0xc76c51a30654be30ULL,
+    0xd192e819d6ef5218ULL,0xd69906245565a910ULL,0xf40e35855771202aULL,0x106aa07032bbd1b8ULL,
+    0x19a4c116b8d2d0c8ULL,0x1e376c085141ab53ULL,0x2748774cdf8eeb99ULL,0x34b0bcb5e19b48a8ULL,
+    0x391c0cb3c5c95a63ULL,0x4ed8aa4ae3418acbULL,0x5b9cca4f7763e373ULL,0x682e6ff3d6b2b8a3ULL,
+    0x748f82ee5defb2fcULL,0x78a5636f43172f60ULL,0x84c87814a1f0ab72ULL,0x8cc702081a6439ecULL,
+    0x90befffa23631e28ULL,0xa4506cebde82bde9ULL,0xbef9a3f7b2c67915ULL,0xc67178f2e372532bULL,
+    0xca273eceea26619cULL,0xd186b8c721c0c207ULL,0xeada7dd6cde0eb1eULL,0xf57d4f7fee6ed178ULL,
+    0x06f067aa72176fbaULL,0x0a637dc5a2c898a6ULL,0x113f9804bef90daeULL,0x1b710b35131c471bULL,
+    0x28db77f523047d84ULL,0x32caab7b40c72493ULL,0x3c9ebe0a15c9bebcULL,0x431d67c49c100d4cULL,
+    0x4cc5d4becb3e42b6ULL,0x597f299cfc657e2aULL,0x5fcb6fab3ad6faecULL,0x6c44198c4a475817ULL
+};
+
+#define SHA512_ROR(x,n) (((x)>>(n))|((x)<<(64-(n))))
+#define SHA512_CH(x,y,z) (((x)&(y))^(~(x)&(z)))
+#define SHA512_MAJ(x,y,z) (((x)&(y))^((x)&(z))^((y)&(z)))
+#define SHA512_S0(x) (SHA512_ROR(x,28)^SHA512_ROR(x,34)^SHA512_ROR(x,39))
+#define SHA512_S1(x) (SHA512_ROR(x,14)^SHA512_ROR(x,18)^SHA512_ROR(x,41))
+#define SHA512_s0(x) (SHA512_ROR(x,1)^SHA512_ROR(x,8)^((x)>>7))
+#define SHA512_s1(x) (SHA512_ROR(x,19)^SHA512_ROR(x,61)^((x)>>6))
+
+typedef struct {
+    uint64_t state[8];
+    uint64_t count;
+    unsigned char buf[128];
+} SHA512_CTX;
+
+static void sha512_init(SHA512_CTX *ctx) {
+    ctx->state[0] = 0x6a09e667f3bcc908ULL;
+    ctx->state[1] = 0xbb67ae8584caa73bULL;
+    ctx->state[2] = 0x3c6ef372fe94f82bULL;
+    ctx->state[3] = 0xa54ff53a5f1d36f1ULL;
+    ctx->state[4] = 0x510e527fade682d1ULL;
+    ctx->state[5] = 0x9b05688c2b3e6c1fULL;
+    ctx->state[6] = 0x1f83d9abfb41bd6bULL;
+    ctx->state[7] = 0x5be0cd19137e2179ULL;
+    ctx->count = 0;
+}
+
+static void sha512_transform(SHA512_CTX *ctx, const unsigned char *data) {
+    uint64_t w[80], a, b, c, d, e, f, g, h, t1, t2;
+    int i;
+    for (i = 0; i < 16; i++) {
+        w[i] = ((uint64_t)data[i*8]<<56) | ((uint64_t)data[i*8+1]<<48) |
+               ((uint64_t)data[i*8+2]<<40) | ((uint64_t)data[i*8+3]<<32) |
+               ((uint64_t)data[i*8+4]<<24) | ((uint64_t)data[i*8+5]<<16) |
+               ((uint64_t)data[i*8+6]<<8)  | ((uint64_t)data[i*8+7]);
+    }
+    for (i = 16; i < 80; i++)
+        w[i] = SHA512_s1(w[i-2]) + w[i-7] + SHA512_s0(w[i-15]) + w[i-16];
+    a=ctx->state[0]; b=ctx->state[1]; c=ctx->state[2]; d=ctx->state[3];
+    e=ctx->state[4]; f=ctx->state[5]; g=ctx->state[6]; h=ctx->state[7];
+    for (i = 0; i < 80; i++) {
+        t1 = h + SHA512_S1(e) + SHA512_CH(e,f,g) + sha512_k[i] + w[i];
+        t2 = SHA512_S0(a) + SHA512_MAJ(a,b,c);
+        h=g; g=f; f=e; e=d+t1; d=c; c=b; b=a; a=t1+t2;
+    }
+    ctx->state[0]+=a; ctx->state[1]+=b; ctx->state[2]+=c; ctx->state[3]+=d;
+    ctx->state[4]+=e; ctx->state[5]+=f; ctx->state[6]+=g; ctx->state[7]+=h;
+}
+
+static void sha512_update(SHA512_CTX *ctx, const unsigned char *data, size_t len) {
+    size_t i, idx = ctx->count % 128;
+    ctx->count += len;
+    for (i = 0; i < len; i++) {
+        ctx->buf[idx++] = data[i];
+        if (idx == 128) { sha512_transform(ctx, ctx->buf); idx = 0; }
+    }
+}
+
+static void sha512_final(SHA512_CTX *ctx, unsigned char hash[64]) {
+    uint64_t bits = ctx->count * 8;
+    size_t idx = ctx->count % 128;
+    ctx->buf[idx++] = 0x80;
+    if (idx > 112) {
+        while (idx < 128) ctx->buf[idx++] = 0;
+        sha512_transform(ctx, ctx->buf);
+        idx = 0;
+    }
+    while (idx < 112) ctx->buf[idx++] = 0;
+    for (int i = 0; i < 8; i++)
+        ctx->buf[112+i] = 0; // high 64 bits of length (we don't support >2^64 bytes)
+    for (int i = 0; i < 8; i++)
+        ctx->buf[120+i] = (bits >> (56 - i*8)) & 0xff;
+    sha512_transform(ctx, ctx->buf);
+    for (int i = 0; i < 8; i++)
+        for (int j = 0; j < 8; j++)
+            hash[i*8+j] = (ctx->state[i] >> (56 - j*8)) & 0xff;
+}
+
+static void compute_file_sha512(const char* path, char out_hex[129]) {
+    FILE *f = fopen(path, "rb");
+    if (!f) { out_hex[0] = 0; return; }
+    SHA512_CTX ctx;
+    sha512_init(&ctx);
+    unsigned char buf[8192];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+        sha512_update(&ctx, buf, n);
+    fclose(f);
+    unsigned char hash[64];
+    sha512_final(&ctx, hash);
+    for (int i = 0; i < 64; i++)
+        sprintf(out_hex + i*2, "%02x", hash[i]);
+    out_hex[128] = 0;
+}
+
+// ============================================================================
+// tar.gz extraction
+// ============================================================================
+
+static int mkdirp(const char* path) {
+    char tmp[MAX_PATH_LEN];
+    snprintf(tmp, sizeof(tmp), "%s", path);
+    for (char *p = tmp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = 0;
+            mkdir(tmp, 0755);
+            *p = '/';
+        }
+    }
+    return mkdir(tmp, 0755);
+}
+
+static size_t parse_octal(const char *s, int n) {
+    size_t val = 0;
+    for (int i = 0; i < n && s[i] >= '0' && s[i] <= '7'; i++)
+        val = val * 8 + (s[i] - '0');
+    return val;
+}
+
+static int extract_tar_gz(const char* archive, const char* dest) {
+    gzFile gz = gzopen(archive, "rb");
+    if (!gz) { fprintf(stderr, "Error: cannot open %s\n", archive); return -1; }
+
+    unsigned char header[512];
+    while (gzread(gz, header, 512) == 512) {
+        // Check for end-of-archive (two zero blocks)
+        int all_zero = 1;
+        for (int i = 0; i < 512; i++) { if (header[i]) { all_zero = 0; break; } }
+        if (all_zero) break;
+
+        // Parse tar header
+        char name[256] = {0};
+        memcpy(name, header, 100);
+
+        // Handle GNU long name (type 'L')
+        char typeflag = header[156];
+
+        // Prefix (POSIX/ustar)
+        char prefix[156] = {0};
+        memcpy(prefix, header + 345, 155);
+
+        char fullpath[MAX_PATH_LEN];
+        if (prefix[0]) {
+            snprintf(fullpath, sizeof(fullpath), "%s/%s/%s", dest, prefix, name);
+        } else {
+            snprintf(fullpath, sizeof(fullpath), "%s/%s", dest, name);
+        }
+
+        size_t size = parse_octal((char*)header + 124, 12);
+
+        if (typeflag == '5' || (typeflag == 0 && name[strlen(name)-1] == '/')) {
+            // Directory
+            mkdirp(fullpath);
+        } else if (typeflag == '0' || typeflag == 0 || typeflag == '7') {
+            // Regular file
+            // Ensure parent directory exists
+            char parent[MAX_PATH_LEN];
+            snprintf(parent, sizeof(parent), "%s", fullpath);
+            char *last_slash = strrchr(parent, '/');
+            if (last_slash) { *last_slash = 0; mkdirp(parent); }
+
+            FILE *out = fopen(fullpath, "wb");
+            if (!out) {
+                fprintf(stderr, "Error: cannot create %s: %s\n", fullpath, strerror(errno));
+                // Skip this file's data
+                size_t blocks = (size + 511) / 512;
+                for (size_t b = 0; b < blocks; b++) {
+                    unsigned char skip[512];
+                    gzread(gz, skip, 512);
+                }
+                continue;
+            }
+            size_t remaining = size;
+            while (remaining > 0) {
+                unsigned char block[512];
+                int r = gzread(gz, block, 512);
+                if (r <= 0) break;
+                size_t to_write = remaining < 512 ? remaining : 512;
+                fwrite(block, 1, to_write, out);
+                remaining -= to_write;
+            }
+            fclose(out);
+            // Set executable bit for files in root that might be executables
+            if (strstr(fullpath, "/dotnet") || strstr(fullpath, ".sh"))
+                chmod(fullpath, 0755);
+            else
+                chmod(fullpath, 0644);
+        } else {
+            // Skip other types (symlinks, etc.)
+            size_t blocks = (size + 511) / 512;
+            for (size_t b = 0; b < blocks; b++) {
+                unsigned char skip[512];
+                gzread(gz, skip, 512);
+            }
+        }
+    }
+    gzclose(gz);
+    return 0;
+}
+
+// ============================================================================
+// Semantic version parsing and comparison
+// ============================================================================
+
+typedef struct {
+    int major, minor, patch;
+    char prerelease[128];
+} SemVer;
+
+static int parse_semver(const char *s, SemVer *v) {
+    v->major = v->minor = v->patch = 0;
+    v->prerelease[0] = 0;
+    if (!s) return -1;
+    int n = sscanf(s, "%d.%d.%d", &v->major, &v->minor, &v->patch);
+    if (n < 2) return -1;
+    const char *dash = strchr(s, '-');
+    if (dash) {
+        strncpy(v->prerelease, dash + 1, sizeof(v->prerelease) - 1);
+        v->prerelease[sizeof(v->prerelease)-1] = 0;
+    }
+    return 0;
+}
+
+static int semver_cmp(const SemVer *a, const SemVer *b) {
+    if (a->major != b->major) return a->major - b->major;
+    if (a->minor != b->minor) return a->minor - b->minor;
+    if (a->patch != b->patch) return a->patch - b->patch;
+    // No prerelease > has prerelease
+    int a_pre = a->prerelease[0] != 0;
+    int b_pre = b->prerelease[0] != 0;
+    if (a_pre != b_pre) return b_pre - a_pre;
+    if (a_pre && b_pre) return strcmp(a->prerelease, b->prerelease);
+    return 0;
+}
+
+// Range: ">1.2.3", ">=1.2.3", "^1.2.3", "=1.2.3", "<1.2.3", "<=1.2.3"
+static int semver_satisfies(const SemVer *ver, const char *range, int include_pre) {
+    if (!include_pre && ver->prerelease[0]) return 0;
+
+    const char *p = range;
+    while (*p == ' ') p++;
+
+    char op[3] = {0};
+    if (p[0] == '>' && p[1] == '=') { op[0] = '>'; op[1] = '='; p += 2; }
+    else if (p[0] == '<' && p[1] == '=') { op[0] = '<'; op[1] = '='; p += 2; }
+    else if (p[0] == '>') { op[0] = '>'; p++; }
+    else if (p[0] == '<') { op[0] = '<'; p++; }
+    else if (p[0] == '=') { op[0] = '='; p++; }
+    else if (p[0] == '^') { op[0] = '^'; p++; }
+    else if (p[0] == '~') { op[0] = '~'; p++; }
+    else { op[0] = '='; } // default: exact match
+
+    while (*p == ' ') p++;
+    SemVer rv;
+    if (parse_semver(p, &rv) != 0) return 0;
+
+    int c = semver_cmp(ver, &rv);
+    if (op[0] == '>' && op[1] == '=') return c >= 0;
+    if (op[0] == '>') return c > 0;
+    if (op[0] == '<' && op[1] == '=') return c <= 0;
+    if (op[0] == '<') return c < 0;
+    if (op[0] == '=') return c == 0;
+    if (op[0] == '^') {
+        // Compatible: >=ver, <next major
+        if (c < 0) return 0;
+        return ver->major == rv.major;
+    }
+    if (op[0] == '~') {
+        // Patch-level: >=ver, <next minor
+        if (c < 0) return 0;
+        return ver->major == rv.major && ver->minor == rv.minor;
+    }
+    return 0;
+}
+
+// ============================================================================
+// Platform/architecture detection and RID mapping
+// ============================================================================
+
+typedef struct {
+    char platform[32];
+    char arch[32];
+} DetectedSystem;
+
+static DetectedSystem detect_system(void) {
+    DetectedSystem sys = {{0}, {0}};
+    struct utsname un;
+    if (uname(&un) == 0) {
+        if (strstr(un.sysname, "Linux")) strcpy(sys.platform, "linux");
+        else if (strstr(un.sysname, "Darwin")) strcpy(sys.platform, "macos");
+        else if (strstr(un.sysname, "MINGW") || strstr(un.sysname, "CYGWIN") ||
+                 strstr(un.sysname, "Windows") || strstr(un.sysname, "MSYS"))
+            strcpy(sys.platform, "windows");
+        else if (strstr(un.sysname, "FreeBSD")) strcpy(sys.platform, "linux"); // use linux binaries
+        else strcpy(sys.platform, "linux"); // fallback
+
+        if (strstr(un.machine, "x86_64") || strstr(un.machine, "amd64"))
+            strcpy(sys.arch, "x64");
+        else if (strstr(un.machine, "aarch64") || strstr(un.machine, "arm64"))
+            strcpy(sys.arch, "arm64");
+        else if (strstr(un.machine, "armv7") || strstr(un.machine, "armhf"))
+            strcpy(sys.arch, "arm32");
+        else if (strstr(un.machine, "i686") || strstr(un.machine, "i386"))
+            strcpy(sys.arch, "x86");
+        else
+            strcpy(sys.arch, "x64"); // fallback
+    } else {
+        strcpy(sys.platform, "linux");
+        strcpy(sys.arch, "x64");
+    }
+    return sys;
+}
+
+// Map platform name to RID prefix
+static const char* platform_to_rid(const char* platform) {
+    if (strcmp(platform, "windows") == 0) return "win";
+    if (strcmp(platform, "macos") == 0) return "osx";
+    if (strcmp(platform, "linux") == 0) return "linux";
+    return platform;
+}
+
+// Map arch name to RID suffix
+static const char* arch_to_rid(const char* arch) {
+    if (strcmp(arch, "arm32") == 0) return "arm";
+    return arch; // arm64, x64, x86 map directly
+}
+
+// Build full RID
+static void build_rid(const char* platform, const char* arch, char* out, size_t out_sz) {
+    // Handle alpine variants
+    const char *alpine = strstr(arch, "-alpine");
+    if (alpine) {
+        char base_arch[32];
+        size_t base_len = alpine - arch;
+        if (base_len >= sizeof(base_arch)) base_len = sizeof(base_arch) - 1;
+        memcpy(base_arch, arch, base_len);
+        base_arch[base_len] = 0;
+        snprintf(out, out_sz, "linux-musl-%s", arch_to_rid(base_arch));
+        return;
+    }
+    snprintf(out, out_sz, "%s-%s", platform_to_rid(platform), arch_to_rid(arch));
+}
+
+// ============================================================================
+// Runtime DB: query Microsoft's releases index
+// ============================================================================
+
+typedef struct {
+    char url[MAX_URL];
+    char checksum[256];
+    char version[64];
+} RuntimeEntry;
+
+// Map runtime type string to JSON key and file prefix
+static const char* type_to_json_key(const char* type) {
+    if (strcmp(type, "sdk") == 0) return "sdk";
+    if (strcmp(type, "runtime") == 0) return "runtime";
+    if (strcmp(type, "runtime-aspnetcore") == 0) return "aspnetcore-runtime";
+    if (strcmp(type, "runtime-desktop") == 0) return "windowsdesktop";
+    return "runtime";
+}
+
+static const char* type_to_file_prefix(const char* type) {
+    if (strcmp(type, "sdk") == 0) return "dotnet-sdk-";
+    if (strcmp(type, "runtime") == 0) return "dotnet-runtime-";
+    if (strcmp(type, "runtime-aspnetcore") == 0) return "aspnetcore-runtime-";
+    if (strcmp(type, "runtime-desktop") == 0) return "windowsdesktop-runtime-";
+    return "dotnet-runtime-";
+}
+
+static int find_best_entry(const char* runtime_type, const char* platform,
+                           const char* arch, const char* version_pattern,
+                           int include_prerelease, RuntimeEntry* result) {
+    // Fetch releases index
+    size_t len;
+    char *index_json = fetch_url(RELEASES_INDEX_URL, &len);
+    if (!index_json) {
+        fprintf(stderr, "Error: Failed to fetch releases index\n");
+        return -1;
+    }
+
+    cJSON *index = cJSON_Parse(index_json);
+    free(index_json);
+    if (!index) {
+        fprintf(stderr, "Error: Failed to parse releases index JSON\n");
+        return -1;
+    }
+
+    const char *json_key = type_to_json_key(runtime_type);
+    const char *file_prefix = type_to_file_prefix(runtime_type);
+
+    char rid[64];
+    build_rid(platform, arch, rid, sizeof(rid));
+
+    // Determine file extension
+    const char *ext = (strcmp(platform, "windows") == 0) ? ".zip" : ".tar.gz";
+
+    SemVer best_ver = {0, 0, 0, {0}};
+    int found = 0;
+
+    cJSON *ri = cJSON_GetObjectItem(index, "releases-index");
+    if (!ri) { cJSON_Delete(index); return -1; }
+
+    cJSON *channel;
+    cJSON_ArrayForEach(channel, ri) {
+        cJSON *rel_url = cJSON_GetObjectItem(channel, "releases.json");
+        if (!rel_url || !cJSON_IsString(rel_url)) continue;
+
+        char *chan_json = fetch_url(rel_url->valuestring, &len);
+        if (!chan_json) continue;
+
+        cJSON *chan = cJSON_Parse(chan_json);
+        free(chan_json);
+        if (!chan) continue;
+
+        cJSON *releases = cJSON_GetObjectItem(chan, "releases");
+        if (!releases) { cJSON_Delete(chan); continue; }
+
+        cJSON *release;
+        cJSON_ArrayForEach(release, releases) {
+            cJSON *component = cJSON_GetObjectItem(release, json_key);
+            if (!component) continue;
+
+            cJSON *ver_item = cJSON_GetObjectItem(component, "version");
+            if (!ver_item || !cJSON_IsString(ver_item)) continue;
+
+            SemVer ver;
+            if (parse_semver(ver_item->valuestring, &ver) != 0) continue;
+            if (!semver_satisfies(&ver, version_pattern, include_prerelease)) continue;
+
+            cJSON *files = cJSON_GetObjectItem(component, "files");
+            if (!files) continue;
+
+            cJSON *file;
+            cJSON_ArrayForEach(file, files) {
+                cJSON *file_rid = cJSON_GetObjectItem(file, "rid");
+                if (!file_rid || !cJSON_IsString(file_rid)) continue;
+                if (strcmp(file_rid->valuestring, rid) != 0) continue;
+
+                cJSON *file_name = cJSON_GetObjectItem(file, "name");
+                if (!file_name || !cJSON_IsString(file_name)) continue;
+                if (strncmp(file_name->valuestring, file_prefix, strlen(file_prefix)) != 0)
+                    continue;
+
+                // Check file extension
+                const char *fname = file_name->valuestring;
+                size_t fname_len = strlen(fname);
+                size_t ext_len = strlen(ext);
+                if (fname_len < ext_len) continue;
+                if (strcmp(fname + fname_len - ext_len, ext) != 0) continue;
+
+                // Check if this version is better than current best
+                if (!found || semver_cmp(&ver, &best_ver) > 0) {
+                    cJSON *url_item = cJSON_GetObjectItem(file, "url");
+                    cJSON *hash_item = cJSON_GetObjectItem(file, "hash");
+                    if (url_item && cJSON_IsString(url_item)) {
+                        strncpy(result->url, url_item->valuestring, sizeof(result->url) - 1);
+                        if (hash_item && cJSON_IsString(hash_item))
+                            strncpy(result->checksum, hash_item->valuestring, sizeof(result->checksum) - 1);
+                        else
+                            result->checksum[0] = 0;
+                        strncpy(result->version, ver_item->valuestring, sizeof(result->version) - 1);
+                        best_ver = ver;
+                        found = 1;
+                    }
+                }
+            }
+        }
+        cJSON_Delete(chan);
+    }
+
+    cJSON_Delete(index);
+    return found ? 0 : -1;
+}
+
+// ============================================================================
+// CLI and main logic
+// ============================================================================
+
+static void print_usage(const char* prog) {
+    printf("runtimedl v%s - .NET Runtime Downloader (APE)\n\n", VERSION);
+    printf("Usage: %s [options]\n\n", prog);
+    printf("Options:\n");
+    printf("  --runtime-type TYPE    Runtime type: sdk, runtime, runtime-aspnetcore,\n");
+    printf("                         runtime-desktop (default: runtime)\n");
+    printf("  --platform PLATFORM    Platform: linux, windows, macos, local\n");
+    printf("                         (default: local = auto-detect)\n");
+    printf("  --architecture ARCH    Architecture: x64, x86, arm64, arm32,\n");
+    printf("                         arm64-alpine, local (default: local = auto-detect)\n");
+    printf("  --version-pattern PAT  Semver range: >1.0.0, >=8.0.0, ^8.0.0, etc.\n");
+    printf("                         (default: >0.0.0)\n");
+    printf("  --include-prerelease   Include prerelease versions (default: false)\n");
+    printf("  --output DIR           Output directory (default: ./runtime)\n");
+    printf("  --download BOOL        Download the runtime (default: true)\n");
+    printf("  --help                 Show this help message\n");
+    printf("  --version              Show version information\n");
+}
+
+static void strtolower(char *s) {
+    for (; *s; s++) if (*s >= 'A' && *s <= 'Z') *s += 32;
+}
+
+} // end raw block
+
+fn main() {
+    raw {
+        // Default options
+        char runtime_type[64] = "runtime";
+        char platform[64] = "local";
+        char architecture[64] = "local";
+        char version_pattern[256] = ">0.0.0";
+        int include_prerelease = 0;
+        char output[MAX_PATH_LEN] = "./runtime";
+        int do_download = 1;
+
+        static struct option long_opts[] = {
+            {"runtime-type", required_argument, 0, 't'},
+            {"platform", required_argument, 0, 'p'},
+            {"architecture", required_argument, 0, 'a'},
+            {"version-pattern", required_argument, 0, 'v'},
+            {"include-prerelease", no_argument, 0, 'r'},
+            {"output", required_argument, 0, 'o'},
+            {"download", required_argument, 0, 'd'},
+            {"help", no_argument, 0, 'h'},
+            {"version", no_argument, 0, 'V'},
+            {0, 0, 0, 0}
+        };
+
+        // Access argc/argv via cosmopolitan
+        extern int __argc;
+        extern char **__argv;
+        int argc = __argc;
+        char **argv = __argv;
+
+        int opt;
+        optind = 1;
+        while ((opt = getopt_long(argc, argv, "t:p:a:v:ro:d:hV", long_opts, NULL)) != -1) {
+            switch (opt) {
+                case 't': strncpy(runtime_type, optarg, sizeof(runtime_type)-1); break;
+                case 'p': strncpy(platform, optarg, sizeof(platform)-1); break;
+                case 'a': strncpy(architecture, optarg, sizeof(architecture)-1); break;
+                case 'v': strncpy(version_pattern, optarg, sizeof(version_pattern)-1); break;
+                case 'r': include_prerelease = 1; break;
+                case 'o': strncpy(output, optarg, sizeof(output)-1); break;
+                case 'd':
+                    if (strcmp(optarg, "false") == 0 || strcmp(optarg, "0") == 0 || strcmp(optarg, "False") == 0)
+                        do_download = 0;
+                    break;
+                case 'h': print_usage(argv[0]); exit(0);
+                case 'V': printf("runtimedl v%s (APE)\n", VERSION); exit(0);
+                default: print_usage(argv[0]); exit(1);
+            }
+        }
+
+        // Normalize to lowercase and replace _ with -
+        strtolower(runtime_type);
+        for (char *p = runtime_type; *p; p++) if (*p == '_') *p = '-';
+        strtolower(platform);
+        strtolower(architecture);
+
+        // Auto-detect platform and architecture
+        if (strcmp(platform, "local") == 0 || strcmp(architecture, "local") == 0) {
+            DetectedSystem sys = detect_system();
+            if (strcmp(platform, "local") == 0) strcpy(platform, sys.platform);
+            if (strcmp(architecture, "local") == 0) strcpy(architecture, sys.arch);
+        }
+
+        printf("Runtime Type     : %s\n", runtime_type);
+        printf("Platform         : %s\n", platform);
+        printf("Architecture     : %s\n", architecture);
+        printf("Version Pattern  : %s\n", version_pattern);
+        printf("Output           : %s\n", output);
+        printf("\n");
+
+        // Find matching runtime entry
+        printf("Querying releases...\n");
+        RuntimeEntry entry = {{0}, {0}, {0}};
+        if (find_best_entry(runtime_type, platform, architecture,
+                            version_pattern, include_prerelease, &entry) != 0) {
+            fprintf(stderr, "Error: No matching entry found for type=%s, platform=%s, arch=%s, version=%s\n",
+                    runtime_type, platform, architecture, version_pattern);
+            exit(1);
+        }
+
+        printf("Found Entry      :\n");
+        printf("  Version        : %s\n", entry.version);
+        printf("  URL            : %s\n", entry.url);
+        printf("  Checksum       : %s\n", entry.checksum);
+        printf("\n");
+
+        if (!do_download) {
+            exit(0);
+        }
+
+        // Create temp directory and download
+        const char *tmpdir = "/tmp/runtimedl";
+        mkdir(tmpdir, 0755);
+
+        // Extract filename from URL
+        const char *fname = strrchr(entry.url, '/');
+        if (!fname) fname = "download"; else fname++;
+        char tmpfile[MAX_PATH_LEN];
+        snprintf(tmpfile, sizeof(tmpfile), "%s/%s", tmpdir, fname);
+
+        if (download_file(entry.url, tmpfile) != 0) {
+            fprintf(stderr, "Error: Download failed\n");
+            exit(1);
+        }
+        printf("Download complete\n");
+
+        // Verify checksum
+        if (entry.checksum[0]) {
+            printf("Verifying checksum...\n");
+            char computed[129];
+            compute_file_sha512(tmpfile, computed);
+            // Case-insensitive comparison
+            char expected_lower[256];
+            strncpy(expected_lower, entry.checksum, sizeof(expected_lower)-1);
+            strtolower(expected_lower);
+            strtolower(computed);
+            if (strcmp(computed, expected_lower) != 0) {
+                fprintf(stderr, "Error: Checksum mismatch!\n  Expected: %s\n  Got:      %s\n",
+                        expected_lower, computed);
+                remove(tmpfile);
+                exit(1);
+            }
+            printf("Hash OK          : %s\n", computed);
+        }
+
+        // Extract
+        printf("Unpacking...\n");
+        char outdir[MAX_PATH_LEN];
+        snprintf(outdir, sizeof(outdir), "%s/%s/%s", output, platform, architecture);
+        mkdirp(outdir);
+
+        if (strstr(tmpfile, ".tar.gz")) {
+            if (extract_tar_gz(tmpfile, outdir) != 0) {
+                fprintf(stderr, "Error: Extraction failed\n");
+                exit(1);
+            }
+        } else if (strstr(tmpfile, ".zip")) {
+            // Use system unzip for .zip files
+            char cmd[MAX_PATH_LEN * 2 + 64];
+            snprintf(cmd, sizeof(cmd), "unzip -qo '%s' -d '%s'", tmpfile, outdir);
+            if (system(cmd) != 0) {
+                fprintf(stderr, "Error: Zip extraction failed\n");
+                exit(1);
+            }
+        } else {
+            fprintf(stderr, "Error: Unknown archive format: %s\n", tmpfile);
+            exit(1);
+        }
+
+        // Cleanup
+        printf("Cleaning up\n");
+        remove(tmpfile);
+
+        printf("Done\n");
+    }
+}
