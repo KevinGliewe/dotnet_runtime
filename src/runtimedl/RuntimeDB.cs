@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using SemanticVersioning;
 
@@ -10,7 +10,7 @@ namespace runtimedl
 {
     public class RuntimeDB
     {
-        public static readonly string DOWNLOAD_DB = "https://raw.githubusercontent.com/KevinGliewe/dotnet_runtime/downloads-db/net.json";
+        public static readonly string RELEASES_INDEX_URL = "https://dotnetcli.blob.core.windows.net/dotnet/release-metadata/releases-index.json";
         public static readonly string PACKAGE_TYPE = "binaries";
 
         public enum RType {
@@ -41,55 +41,216 @@ namespace runtimedl
             public string checksum { get; set; }
         }
 
-        // type -> version -> platform -> arch -> package
-        private Dictionary<string, Dictionary<string,Dictionary<string,Dictionary<string,Dictionary<string, Entry>>>>>
-            DB = new Dictionary<string, Dictionary<string,Dictionary<string,Dictionary<string,Dictionary<string, Entry>>>>>();
+        #region JSON model classes
 
-        
-        public RuntimeDB() {
-            var client = new HttpClient();
-            var rawJsonDB = client.GetStringAsync(DOWNLOAD_DB).Result;
-
-            DB = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string,Dictionary<string,Dictionary<string,Dictionary<string, Entry>>>>>>(rawJsonDB);
+        private class ReleasesIndexRoot {
+            [JsonPropertyName("releases-index")]
+            public List<ChannelEntry> ReleasesIndex { get; set; }
         }
 
-        public Entry GetEntry(string runtimeType, 
+        private class ChannelEntry {
+            [JsonPropertyName("channel-version")]
+            public string ChannelVersion { get; set; }
+
+            [JsonPropertyName("releases.json")]
+            public string ReleasesJsonUrl { get; set; }
+        }
+
+        private class ChannelReleasesRoot {
+            [JsonPropertyName("releases")]
+            public List<Release> Releases { get; set; }
+        }
+
+        private class Release {
+            [JsonPropertyName("release-version")]
+            public string ReleaseVersion { get; set; }
+
+            [JsonPropertyName("runtime")]
+            public Component Runtime { get; set; }
+
+            [JsonPropertyName("sdk")]
+            public Component Sdk { get; set; }
+
+            [JsonPropertyName("aspnetcore-runtime")]
+            public Component AspnetcoreRuntime { get; set; }
+
+            [JsonPropertyName("windowsdesktop")]
+            public Component Windowsdesktop { get; set; }
+        }
+
+        private class Component {
+            [JsonPropertyName("version")]
+            public string Version { get; set; }
+
+            [JsonPropertyName("files")]
+            public List<FileEntry> Files { get; set; }
+        }
+
+        private class FileEntry {
+            [JsonPropertyName("name")]
+            public string Name { get; set; }
+
+            [JsonPropertyName("rid")]
+            public string Rid { get; set; }
+
+            [JsonPropertyName("url")]
+            public string Url { get; set; }
+
+            [JsonPropertyName("hash")]
+            public string Hash { get; set; }
+        }
+
+        #endregion
+
+        private static readonly Dictionary<string, string> PlatformToRidPrefix = new Dictionary<string, string> {
+            { "windows", "win" },
+            { "macos", "osx" },
+            { "linux", "linux" }
+        };
+
+        private static readonly Dictionary<string, string> ArchToRidSuffix = new Dictionary<string, string> {
+            { "arm32", "arm" },
+            { "arm64", "arm64" },
+            { "x86", "x86" },
+            { "x64", "x64" }
+        };
+
+        // type string -> accessor for the component on a Release
+        private static readonly Dictionary<string, Func<Release, Component>> TypeToComponent = new Dictionary<string, Func<Release, Component>> {
+            { "sdk", r => r.Sdk },
+            { "runtime", r => r.Runtime },
+            { "runtime-aspnetcore", r => r.AspnetcoreRuntime },
+            { "runtime-desktop", r => r.Windowsdesktop }
+        };
+
+        // type string -> expected file name prefix
+        private static readonly Dictionary<string, string> TypeToFilePrefix = new Dictionary<string, string> {
+            { "sdk", "dotnet-sdk-" },
+            { "runtime", "dotnet-runtime-" },
+            { "runtime-aspnetcore", "aspnetcore-runtime-" },
+            { "runtime-desktop", "windowsdesktop-runtime-" }
+        };
+
+        // All releases across all channels
+        private List<Release> _allReleases = new List<Release>();
+
+        public RuntimeDB() {
+            var client = new HttpClient();
+
+            var indexJson = client.GetStringAsync(RELEASES_INDEX_URL).Result;
+            var index = JsonSerializer.Deserialize<ReleasesIndexRoot>(indexJson);
+
+            foreach (var channel in index.ReleasesIndex) {
+                if (string.IsNullOrEmpty(channel.ReleasesJsonUrl))
+                    continue;
+
+                try {
+                    var channelJson = client.GetStringAsync(channel.ReleasesJsonUrl).Result;
+                    var channelReleases = JsonSerializer.Deserialize<ChannelReleasesRoot>(channelJson);
+                    if (channelReleases?.Releases != null)
+                        _allReleases.AddRange(channelReleases.Releases);
+                } catch {
+                    // Skip channels that fail to load
+                }
+            }
+        }
+
+        public Entry GetEntry(string runtimeType,
             string platform,
             string architecture,
             string version,
             bool includePrerelease) {
-            
-            var m_type = runtimeType.ToString().ToLower().Replace('_', '-');
+
+            var m_type = runtimeType.ToLower().Replace('_', '-');
             var m_version = new SemanticVersioning.Range(version);
-            var m_platform = platform.ToString().ToLower().Replace('_', '-');
-            var m_arch = architecture.ToString().ToLower().Replace('_', '-');
-            var m_package = PACKAGE_TYPE;
+            var m_platform = platform.ToLower().Replace('_', '-');
+            var m_arch = architecture.ToLower().Replace('_', '-');
 
-            
-            if(!DB.ContainsKey(m_type))
+            if (!TypeToComponent.ContainsKey(m_type))
                 throw new Exception("Runtime type not found: " + m_type);
-            var d_type = DB[m_type];
 
-            var versionKey = string.Empty;
-            foreach(var ver in d_type.Keys)
-                if(m_version.IsSatisfied(new SemanticVersioning.Version(ver), includePrerelease)){
-                    versionKey = ver;
-                    break;
+            var componentAccessor = TypeToComponent[m_type];
+            var filePrefix = TypeToFilePrefix[m_type];
+            var rid = BuildRid(m_platform, m_arch);
+
+            // Collect all versioned entries for this type
+            Entry bestEntry = null;
+            string bestVersionStr = null;
+
+            foreach (var release in _allReleases) {
+                var component = componentAccessor(release);
+                if (component?.Version == null || component.Files == null)
+                    continue;
+
+                string componentVersion = component.Version;
+
+                SemanticVersioning.Version semVer;
+                try {
+                    semVer = new SemanticVersioning.Version(componentVersion);
+                } catch {
+                    continue;
                 }
 
-            if(!d_type.ContainsKey(versionKey))
-                throw new Exception("Version not found: " + m_version);
-            var d_version = d_type[versionKey];
+                if (!m_version.IsSatisfied(semVer, includePrerelease))
+                    continue;
 
-            if(!d_version.ContainsKey(m_platform))
-                throw new Exception("Platform not found: " + m_platform);
-            var d_platform = d_version[m_platform];
+                // Find the binary file matching the RID
+                var file = FindBinaryFile(component.Files, rid, m_platform, filePrefix);
+                if (file == null)
+                    continue;
 
-            if(!d_platform.ContainsKey(m_arch))
-                throw new Exception("Architecture not found: " + m_arch);
-            var d_arch = d_platform[m_arch];
+                // Keep the best (highest) matching version
+                if (bestVersionStr == null ||
+                    new SemanticVersioning.Version(componentVersion) > new SemanticVersioning.Version(bestVersionStr)) {
+                    bestVersionStr = componentVersion;
+                    bestEntry = new Entry { url = file.Url, checksum = file.Hash };
+                }
+            }
 
-            return d_arch[m_package];
+            if (bestEntry == null)
+                throw new Exception($"No matching entry found for type={m_type}, platform={m_platform}, arch={m_arch}, version={version}");
+
+            return bestEntry;
+        }
+
+        private static string BuildRid(string platform, string arch) {
+            // Handle alpine variants: x64-alpine -> linux-musl-x64, arm64-alpine -> linux-musl-arm64
+            if (arch.EndsWith("-alpine")) {
+                var baseArch = arch.Replace("-alpine", "");
+                if (ArchToRidSuffix.ContainsKey(baseArch))
+                    baseArch = ArchToRidSuffix[baseArch];
+                return "linux-musl-" + baseArch;
+            }
+
+            if (!PlatformToRidPrefix.ContainsKey(platform))
+                throw new Exception("Platform not found: " + platform);
+
+            var ridArch = ArchToRidSuffix.ContainsKey(arch) ? ArchToRidSuffix[arch] : arch;
+            return PlatformToRidPrefix[platform] + "-" + ridArch;
+        }
+
+        private static FileEntry FindBinaryFile(List<FileEntry> files, string rid, string platform, string filePrefix) {
+            foreach (var file in files) {
+                if (file.Rid != rid)
+                    continue;
+
+                if (string.IsNullOrEmpty(file.Name))
+                    continue;
+
+                // Must match the expected file name prefix (e.g., "dotnet-runtime-")
+                if (!file.Name.StartsWith(filePrefix))
+                    continue;
+
+                // Select binary archives only
+                if (platform == "windows") {
+                    if (file.Name.EndsWith(".zip"))
+                        return file;
+                } else {
+                    if (file.Name.EndsWith(".tar.gz"))
+                        return file;
+                }
+            }
+            return null;
         }
     }
 }
