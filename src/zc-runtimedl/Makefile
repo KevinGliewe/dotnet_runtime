@@ -1,23 +1,31 @@
 export PATH := $(realpath usr/bin):$(PATH)
 CC = cosmocc
 ZC = zc.com
-CFLAGS = -Os -s
+CFLAGS = -Os -s -Ivendor/mbedtls/include
+
+# mbedTLS source files
+MBEDTLS_SRC = $(wildcard vendor/mbedtls/library/*.c)
+MBEDTLS_OBJ = $(MBEDTLS_SRC:.c=.o)
 
 # Wrapper script that captures the transpiled C file
 CAPTURE_CC = $(realpath .)/capture-cc.sh
 
 all: out/runtimedl.com
 
+# Build mbedTLS objects
+vendor/mbedtls/library/%.o: vendor/mbedtls/library/%.c
+	@$(CC) $(CFLAGS) -c -o $@ $<
+
 # Two-step build:
-# 1. Transpile .zc -> .c via zc.com (link step will fail due to missing cJSON, that's OK)
-# 2. Compile transpiled .c + cJSON.c together with cosmocc
-out/runtimedl.com: runtimedl.zc cJSON.c cJSON.h capture-cc.sh
+# 1. Transpile .zc -> .c via zc.com
+# 2. Compile transpiled .c + cJSON.c + mbedTLS with cosmocc
+out/runtimedl.com: runtimedl.zc cJSON.c cJSON.h capture-cc.sh $(MBEDTLS_OBJ)
 	@mkdir -p out
 	@echo "Step 1: Transpiling Zen-C to C..."
 	$(ZC) build --cc $(CAPTURE_CC) -o $@ $< 2>/dev/null || true
 	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
-	@echo "Step 2: Compiling with cosmocc..."
-	$(CC) $(CFLAGS) -I. -o $@ out/transpiled.c cJSON.c
+	@echo "Step 2: Compiling with cosmocc + mbedTLS..."
+	$(CC) $(CFLAGS) -I. -o $@ out/transpiled.c cJSON.c $(MBEDTLS_OBJ)
 	@echo "Built: $@ ($$(du -h $@ | cut -f1))"
 
 capture-cc.sh:
@@ -25,6 +33,6 @@ capture-cc.sh:
 	@chmod +x $@
 
 clean:
-	rm -rf out capture-cc.sh
+	rm -rf out capture-cc.sh vendor/mbedtls/library/*.o
 
 .PHONY: all clean
