@@ -123,6 +123,14 @@ namespace runtimedl
             { "runtime-desktop", r => r.Windowsdesktop }
         };
 
+        // type string -> expected file name prefix
+        private static readonly Dictionary<string, string> TypeToFilePrefix = new Dictionary<string, string> {
+            { "sdk", "dotnet-sdk-" },
+            { "runtime", "dotnet-runtime-" },
+            { "runtime-aspnetcore", "aspnetcore-runtime-" },
+            { "runtime-desktop", "windowsdesktop-runtime-" }
+        };
+
         // All releases across all channels
         private List<Release> _allReleases = new List<Release>();
 
@@ -162,6 +170,7 @@ namespace runtimedl
                 throw new Exception("Runtime type not found: " + m_type);
 
             var componentAccessor = TypeToComponent[m_type];
+            var filePrefix = TypeToFilePrefix[m_type];
             var rid = BuildRid(m_platform, m_arch);
 
             // Collect all versioned entries for this type
@@ -186,7 +195,7 @@ namespace runtimedl
                     continue;
 
                 // Find the binary file matching the RID
-                var file = FindBinaryFile(component.Files, rid, m_platform);
+                var file = FindBinaryFile(component.Files, rid, m_platform, filePrefix);
                 if (file == null)
                     continue;
 
@@ -220,15 +229,16 @@ namespace runtimedl
             return PlatformToRidPrefix[platform] + "-" + ridArch;
         }
 
-        private static FileEntry FindBinaryFile(List<FileEntry> files, string rid, string platform) {
+        private static FileEntry FindBinaryFile(List<FileEntry> files, string rid, string platform, string filePrefix) {
             foreach (var file in files) {
                 if (file.Rid != rid)
                     continue;
 
-                // Skip installers and composite builds
                 if (string.IsNullOrEmpty(file.Name))
                     continue;
-                if (file.Name.Contains("-composite-"))
+
+                // Must match the expected file name prefix (e.g., "dotnet-runtime-")
+                if (!file.Name.StartsWith(filePrefix))
                     continue;
 
                 // Select binary archives only
