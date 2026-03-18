@@ -2,26 +2,30 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
-
-    <PackAsTool>true</PackAsTool>
-    <ToolCommandName>runtimedl</ToolCommandName>
-    <PackageOutputPath>./nupkg</PackageOutputPath>
+    <TargetFramework>net8.0</TargetFramework>
 
     <VersionPrefix>1.0.5</VersionPrefix>
 
     <Authors>Kevin Gliewe</Authors>
     <Company>Gliewe.Net</Company>
-    <Description>Dotnet tool to download a dotnet runtime</Description>
+    <Description>Self-contained tool to download a dotnet runtime</Description>
     <RepositoryUrl>https://github.com/KevinGliewe/dotnet_runtime</RepositoryUrl>
     <PackageProjectUrl>https://github.com/KevinGliewe/dotnet_runtime/tree/runtimedl-tool</PackageProjectUrl>
     <PackageLicenseUrl>https://github.com/KevinGliewe/dotnet_runtime/blob/master/LICENSE</PackageLicenseUrl>
-    <PackageTags>tool;runtime;download</PackageTags>
-    <PackageIconUrl>https://killergoldfisch.github.io/WebIconCollections/images/IconCollections/VisualStudioIcons/DownloadWebSetting.128.png</PackageIconUrl>
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
 
-    <DocumentationMarkdownUrl>https://raw.githubusercontent.com/KevinGliewe/dotnet_runtime/runtimedl-tool/README.md</DocumentationMarkdownUrl>
+    <!-- Self-contained single-file publishing -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <PublishTrimmed>true</PublishTrimmed>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <StripSymbols>true</StripSymbols>
+
+    <!-- Trimming configuration -->
+    <TrimMode>link</TrimMode>
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
