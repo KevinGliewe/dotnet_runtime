@@ -1,5 +1,8 @@
 // http.zc — HTTPS client via mbedTLS
 
+import "./extern/zenc-std/string.zc"
+import "./extern/zenc-std/io.zc"
+
 raw {
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,10 +30,6 @@ static int cosmo_entropy_func(void *data, unsigned char *output, size_t len) {
 #define MAX_URL 2048
 #define MAX_PATH_LEN 4096
 
-// ============================================================================
-// URL parsing
-// ============================================================================
-
 typedef struct {
     char host[256];
     char port[8];
@@ -38,47 +37,201 @@ typedef struct {
     int is_https;
 } ParsedURL;
 
-static int parse_url(const char* url, ParsedURL* out) {
-    memset(out, 0, sizeof(*out));
-    const char* p = url;
-    if (strncmp(p, "https://", 8) == 0) {
-        out->is_https = 1; p += 8; strcpy(out->port, "443");
-    } else if (strncmp(p, "http://", 7) == 0) {
-        out->is_https = 0; p += 7; strcpy(out->port, "80");
-    } else return -1;
+typedef struct {
+    char host[256];
+    char port[8];
+    char userinfo[4096];
+    int valid;
+} ProxyInfo;
 
-    const char* slash = strchr(p, '/');
-    const char* colon = strchr(p, ':');
-
-    if (colon && (!slash || colon < slash)) {
-        size_t host_len = colon - p;
-        if (host_len >= sizeof(out->host)) host_len = sizeof(out->host) - 1;
-        memcpy(out->host, p, host_len);
-        out->host[host_len] = 0;
-        colon++;
-        const char* port_end = slash ? slash : p + strlen(p);
-        size_t port_len = port_end - colon;
-        if (port_len >= sizeof(out->port)) port_len = sizeof(out->port) - 1;
-        memcpy(out->port, colon, port_len);
-        out->port[port_len] = 0;
-    } else {
-        size_t host_len = slash ? (size_t)(slash - p) : strlen(p);
-        if (host_len >= sizeof(out->host)) host_len = sizeof(out->host) - 1;
-        memcpy(out->host, p, host_len);
-        out->host[host_len] = 0;
-    }
-
-    if (slash) {
-        strncpy(out->path, slash, sizeof(out->path) - 1);
-    } else {
-        strcpy(out->path, "/");
-    }
-    return 0;
+// Forward declarations for Zen-C functions
+int32_t parse_url(char* url, ParsedURL* out);
+size_t base64_encode(char* src, size_t len, char* dst, size_t dst_sz);
+void parse_proxy_env(ProxyInfo* p);
 }
 
 // ============================================================================
-// TLS connection
+// URL parsing (Zen-C)
 // ============================================================================
+
+fn parse_url(url: char*, _out: ParsedURL*) -> int {
+    raw { memset(_out, 0, sizeof(ParsedURL)); }
+    let s = String::new(url)
+
+    let rest_start: usize = 0
+    if (s.starts_with("https://")) {
+        raw { _out->is_https = 1; strcpy(_out->port, "443"); }
+        rest_start = 8
+    } else if (s.starts_with("http://")) {
+        raw { _out->is_https = 0; strcpy(_out->port, "80"); }
+        rest_start = 7
+    } else {
+        return -1
+    }
+
+    let rest = s.substring(rest_start, s.length() - rest_start)
+
+    // Split host[:port] from path
+    let slash_pos = rest.find('/')
+    let host_part = rest
+    if (slash_pos.is_some()) {
+        let si = slash_pos.unwrap()
+        host_part = rest.substring(0, si)
+        let path_str = rest.substring(si, rest.length() - si)
+        let _path = path_str.c_str()
+        raw { strncpy(_out->path, _path, sizeof(_out->path) - 1); }
+    } else {
+        raw { strcpy(_out->path, "/"); }
+    }
+
+    // Split host from port
+    let colon_pos = host_part.find(':')
+    if (colon_pos.is_some()) {
+        let ci = colon_pos.unwrap()
+        let host_str = host_part.substring(0, ci)
+        let port_str = host_part.substring(ci + 1, host_part.length() - ci - 1)
+        let _host = host_str.c_str()
+        let _port = port_str.c_str()
+        raw {
+            strncpy(_out->host, _host, sizeof(_out->host) - 1);
+            strncpy(_out->port, _port, sizeof(_out->port) - 1);
+        }
+    } else {
+        let _host = host_part.c_str()
+        raw { strncpy(_out->host, _host, sizeof(_out->host) - 1); }
+    }
+
+    return 0
+}
+
+// ============================================================================
+// Base64 encoding (Zen-C)
+// ============================================================================
+
+fn base64_encode(src: char*, len: usize, dst: char*, dst_sz: usize) -> usize {
+    let table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    let _src = src
+    let i: usize = 0
+    let j: usize = 0
+
+    while (i < len && j + 4 < dst_sz) {
+        let a: u32 = 0
+        raw { a = (unsigned char)_src[i]; }
+        i = i + 1
+
+        let b: u32 = 0
+        let have_b: int = 0
+        if (i < len) {
+            raw { b = (unsigned char)_src[i]; }
+            i = i + 1
+            have_b = 1
+        }
+
+        let c: u32 = 0
+        let have_c: int = 0
+        if (i < len) {
+            raw { c = (unsigned char)_src[i]; }
+            i = i + 1
+            have_c = 1
+        }
+
+        let triple: u32 = (a << 16) | (b << 8) | c
+
+        let i0 = (triple >> 18) & 0x3F
+        let i1 = (triple >> 12) & 0x3F
+        let i2 = (triple >> 6) & 0x3F
+        let i3 = triple & 0x3F
+
+        dst[j] = table[i0]
+        dst[j + 1] = table[i1]
+        if (have_b == 1) {
+            dst[j + 2] = table[i2]
+        } else {
+            dst[j + 2] = '='
+        }
+        if (have_c == 1) {
+            dst[j + 3] = table[i3]
+        } else {
+            dst[j + 3] = '='
+        }
+        j = j + 4
+    }
+
+    dst[j] = 0
+    return j
+}
+
+// ============================================================================
+// Proxy environment parsing (Zen-C)
+// ============================================================================
+
+fn parse_proxy_env(_p: ProxyInfo*) -> void {
+    raw { memset(_p, 0, sizeof(ProxyInfo)); }
+
+    let _proxy: char* = NULL
+    raw {
+        _proxy = getenv("HTTPS_PROXY");
+        if (!_proxy) _proxy = getenv("https_proxy");
+        if (!_proxy) _proxy = getenv("HTTP_PROXY");
+        if (!_proxy) _proxy = getenv("http_proxy");
+    }
+    if (_proxy == NULL) { raw { return; } }
+
+    let proxy = String::new(_proxy)
+
+    // Strip scheme prefix
+    let rest_start: usize = 0
+    if (proxy.starts_with("http://")) {
+        rest_start = 7
+    } else if (proxy.starts_with("https://")) {
+        rest_start = 8
+    }
+    let s = proxy
+    if (rest_start > 0) {
+        s = proxy.substring(rest_start, proxy.length() - rest_start)
+    }
+
+    // Extract userinfo if present (before @)
+    let at_pos = s.find('@')
+    let host_start: usize = 0
+    if (at_pos.is_some()) {
+        let ai = at_pos.unwrap()
+        let userinfo = s.substring(0, ai)
+        let _ui = userinfo.c_str()
+        raw { strncpy(_p->userinfo, _ui, sizeof(_p->userinfo) - 1); }
+        host_start = ai + 1
+    }
+
+    let host_section = s.substring(host_start, s.length() - host_start)
+
+    // Split host:port
+    let colon_pos = host_section.find(':')
+    if (colon_pos.is_some()) {
+        let ci = colon_pos.unwrap()
+        let host_str = host_section.substring(0, ci)
+        let port_str = host_section.substring(ci + 1, host_section.length() - ci - 1)
+        let _host = host_str.c_str()
+        let _port = port_str.c_str()
+        raw {
+            strncpy(_p->host, _host, sizeof(_p->host) - 1);
+            strncpy(_p->port, _port, sizeof(_p->port) - 1);
+        }
+    } else {
+        let _host = host_section.c_str()
+        raw {
+            strncpy(_p->host, _host, sizeof(_p->host) - 1);
+            strcpy(_p->port, "8080");
+        }
+    }
+
+    raw { _p->valid = _p->host[0] != 0; }
+}
+
+// ============================================================================
+// TLS, HTTP, and high-level functions (raw C — tightly coupled with mbedTLS)
+// ============================================================================
+
+raw {
 
 typedef struct {
     mbedtls_net_context net;
@@ -124,78 +277,6 @@ static void tls_conn_free(TLSConn* c) {
     mbedtls_entropy_free(&c->entropy);
 }
 
-// ============================================================================
-// Proxy support
-// ============================================================================
-
-typedef struct {
-    char host[256];
-    char port[8];
-    char userinfo[4096];
-    int valid;
-} ProxyInfo;
-
-static void parse_proxy_env(ProxyInfo* p) {
-    memset(p, 0, sizeof(*p));
-    const char* proxy = getenv("HTTPS_PROXY");
-    if (!proxy) proxy = getenv("https_proxy");
-    if (!proxy) proxy = getenv("HTTP_PROXY");
-    if (!proxy) proxy = getenv("http_proxy");
-    if (!proxy) return;
-
-    const char* s = proxy;
-    if (strncmp(s, "http://", 7) == 0) s += 7;
-    else if (strncmp(s, "https://", 8) == 0) s += 8;
-
-    const char* at = strchr(s, '@');
-    const char* host_start = s;
-    if (at) {
-        size_t ui_len = at - s;
-        if (ui_len >= sizeof(p->userinfo)) ui_len = sizeof(p->userinfo) - 1;
-        memcpy(p->userinfo, s, ui_len);
-        p->userinfo[ui_len] = 0;
-        host_start = at + 1;
-    }
-
-    const char* colon = strrchr(host_start, ':');
-    if (colon) {
-        size_t hlen = colon - host_start;
-        if (hlen >= sizeof(p->host)) hlen = sizeof(p->host) - 1;
-        memcpy(p->host, host_start, hlen);
-        p->host[hlen] = 0;
-        strncpy(p->port, colon + 1, sizeof(p->port) - 1);
-    } else {
-        strncpy(p->host, host_start, sizeof(p->host) - 1);
-        strcpy(p->port, "8080");
-    }
-    p->valid = p->host[0] != 0;
-}
-
-// Base64 encoder for proxy auth
-static const char b64_table[] =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-static size_t base64_encode(const unsigned char* src, size_t len,
-                            char* dst, size_t dst_sz) {
-    size_t i = 0, j = 0;
-    while (i < len && j + 4 < dst_sz) {
-        uint32_t a = src[i++];
-        uint32_t b = (i < len) ? src[i++] : 0;
-        uint32_t c = (i < len) ? src[i++] : 0;
-        uint32_t triple = (a << 16) | (b << 8) | c;
-        dst[j++] = b64_table[(triple >> 18) & 0x3F];
-        dst[j++] = b64_table[(triple >> 12) & 0x3F];
-        dst[j++] = (i > len + 1) ? '=' : b64_table[(triple >> 6) & 0x3F];
-        dst[j++] = (i > len) ? '=' : b64_table[triple & 0x3F];
-    }
-    dst[j] = 0;
-    return j;
-}
-
-// ============================================================================
-// TLS connect (with proxy support)
-// ============================================================================
-
 static int tls_conn_connect(TLSConn* c, const ParsedURL* url) {
     c->is_https = url->is_https;
 
@@ -211,7 +292,7 @@ static int tls_conn_connect(TLSConn* c, const ParsedURL* url) {
         int n;
         if (proxy.userinfo[0]) {
             char b64[6144];
-            base64_encode((const unsigned char*)proxy.userinfo,
+            base64_encode(proxy.userinfo,
                          strlen(proxy.userinfo), b64, sizeof(b64));
             n = snprintf(connect_req, sizeof(connect_req),
                 "CONNECT %s:%s HTTP/1.1\r\n"
@@ -274,10 +355,6 @@ static int tls_conn_connect(TLSConn* c, const ParsedURL* url) {
     return 0;
 }
 
-// ============================================================================
-// TLS I/O
-// ============================================================================
-
 static int tls_write(TLSConn* c, const unsigned char* data, size_t len) {
     size_t written = 0;
     while (written < len) {
@@ -310,10 +387,6 @@ static int tls_read_line(TLSConn* c, char* buf, size_t max) {
     buf[i] = 0;
     return (int)i;
 }
-
-// ============================================================================
-// HTTP response parsing
-// ============================================================================
 
 typedef struct {
     int status_code;
@@ -350,7 +423,6 @@ static void parse_http_headers(TLSConn* c, HTTPResponseInfo* info) {
     }
 }
 
-// Read full HTTP body into malloc'd buffer
 static char* read_http_body(TLSConn* c, HTTPResponseInfo* info, size_t* out_len) {
     char* buf = NULL;
     size_t total = 0, cap = 0;
@@ -417,10 +489,6 @@ static int send_http_get(TLSConn* c, const ParsedURL* url) {
         "\r\n", url->path, url->host);
     return tls_write(c, (const unsigned char*)request, strlen(request));
 }
-
-// ============================================================================
-// High-level: fetch_url and download_file (with redirect support)
-// ============================================================================
 
 static char* fetch_url(const char* url, size_t* out_len) {
     char current_url[MAX_URL];
@@ -572,10 +640,6 @@ static int download_file(const char* url, const char* dest) {
     fprintf(stderr, "Error: Too many redirects\n");
     return -1;
 }
-
-// ============================================================================
-// SHA-512
-// ============================================================================
 
 static void compute_file_sha512(const char* path, char out_hex[129]) {
     FILE *f = fopen(path, "rb");
