@@ -139,4 +139,4 @@ src/zc-runtimedl/usr/
 src/zc-runtimedl/out/
 src/zc-runtimedl/zc-boot.com
 src/zc-runtimedl/capture-cc.sh
-runtime/
+runtime/.claude/
