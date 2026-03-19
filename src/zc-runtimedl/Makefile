@@ -63,6 +63,7 @@ out/runtimedl.com: $(ZC_SOURCES) capture-cc.sh | deps
 out/test_semver.com: test_semver.zc semver.zc capture-cc.sh | deps
 	@mkdir -p out
 	@echo "Building semver tests..."
+	@rm -f out/transpiled.c
 	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_semver.zc 2>/dev/null || true
 	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
 	$(CC) $(CFLAGS) -o $@ out/transpiled.c
@@ -71,6 +72,7 @@ out/test_semver.com: test_semver.zc semver.zc capture-cc.sh | deps
 out/test_platform.com: test_platform.zc platform.zc capture-cc.sh | deps
 	@mkdir -p out
 	@echo "Building platform tests..."
+	@rm -f out/transpiled.c
 	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_platform.zc 2>/dev/null || true
 	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
 	$(CC) $(CFLAGS) -o $@ out/transpiled.c
