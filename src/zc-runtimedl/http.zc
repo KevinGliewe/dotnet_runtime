@@ -115,14 +115,13 @@ fn base64_encode(src: char*, len: usize, dst: char*, dst_sz: usize) -> usize {
     let j: usize = 0
 
     while (i < len && j + 4 < dst_sz) {
-        let a: u32 = 0
-        raw { a = (unsigned char)_src[i]; }
+        let a: u32 = (u8)_src[i]
         i = i + 1
 
         let b: u32 = 0
         let have_b: int = 0
         if (i < len) {
-            raw { b = (unsigned char)_src[i]; }
+            b = (u8)_src[i]
             i = i + 1
             have_b = 1
         }
@@ -130,7 +129,7 @@ fn base64_encode(src: char*, len: usize, dst: char*, dst_sz: usize) -> usize {
         let c: u32 = 0
         let have_c: int = 0
         if (i < len) {
-            raw { c = (unsigned char)_src[i]; }
+            c = (u8)_src[i]
             i = i + 1
             have_c = 1
         }

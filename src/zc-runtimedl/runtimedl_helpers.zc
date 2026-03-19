@@ -12,7 +12,13 @@ int32_t detect_archive_format(char *filename);
 }
 
 fn strtolower(_s: char*) {
-    raw { for (char *p = _s; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 32; }
+    let i: usize = 0
+    while (_s[i] != 0) {
+        if (_s[i] >= 'A' && _s[i] <= 'Z') {
+            _s[i] = _s[i] + 32
+        }
+        i = i + 1
+    }
 }
 
 fn normalize_runtime_type(_s: char*) {
@@ -20,7 +26,12 @@ fn normalize_runtime_type(_s: char*) {
     let s = String::new(_s)
     let result = s.replace("_", "-")
     let _r = result.c_str()
-    raw { strcpy(_s, _r); }
+    let i: usize = 0
+    while (_r[i] != 0) {
+        _s[i] = _r[i]
+        i = i + 1
+    }
+    _s[i] = 0
 }
 
 fn is_false_str(s: char*) -> int {

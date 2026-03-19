@@ -33,8 +33,7 @@ void set_file_permissions(char* path);
 fn parse_octal(s: char*, n: int) -> usize {
     let val: usize = 0
     for (let i: int = 0; i < n; i = i + 1) {
-        let c: int = 0
-        raw { c = (unsigned char)s[i]; }
+        let c: int = s[i]
         if (c >= 48 && c <= 55) {
             val = val * 8 + (c - 48)
         } else {

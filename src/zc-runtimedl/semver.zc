@@ -7,8 +7,7 @@ fn _str_to_int(s: String*) -> int {
     let len = s.length()
     let _p = s.c_str()
     for (let i: usize = 0; i < len; i = i + 1) {
-        let c: int = 0
-        raw { c = (unsigned char)_p[i]; }
+        let c: int = _p[i]
         if (c >= 48 && c <= 57) {
             result = result * 10 + (c - 48)
         } else {
