@@ -54,8 +54,9 @@ deps: $(MBEDTLS_DIR)/library/.built $(ZENC_STD_DIR)/json.zc
 out/runtimedl.com: $(ZC_SOURCES) capture-cc.sh | deps
 	@mkdir -p out
 	@echo "Step 1: Transpiling Zen-C to C..."
-	$(ZC) build --cc $(CAPTURE_CC) -o $@ runtimedl.zc
-	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	@rm -f out/capture-cc-debug.log
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ runtimedl.zc || { echo "=== capture-cc debug log ==="; cat out/capture-cc-debug.log 2>/dev/null || echo "(no debug log found - capture-cc.sh was never called!)"; exit 1; }
+	@test -f out/transpiled.c || { echo "Error: transpilation failed"; echo "=== capture-cc debug log ==="; cat out/capture-cc-debug.log 2>/dev/null; exit 1; }
 	$(DEDUP) out/transpiled.c
 	@echo "Step 2: Compiling with cosmocc..."
 	$(CC) $(CFLAGS) -I$(MBEDTLS_DIR)/include -o $@ out/transpiled.c \
@@ -67,9 +68,9 @@ out/runtimedl.com: $(ZC_SOURCES) capture-cc.sh | deps
 out/test_semver.com: test_semver.zc semver.zc capture-cc.sh | deps
 	@mkdir -p out
 	@echo "Building semver tests..."
-	@rm -f out/transpiled.c
-	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_semver.zc
-	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	@rm -f out/transpiled.c out/capture-cc-debug.log
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_semver.zc || { echo "=== capture-cc debug log ==="; cat out/capture-cc-debug.log 2>/dev/null || echo "(no debug log found - capture-cc.sh was never called!)"; exit 1; }
+	@test -f out/transpiled.c || { echo "Error: transpilation failed"; echo "=== capture-cc debug log ==="; cat out/capture-cc-debug.log 2>/dev/null; exit 1; }
 	$(DEDUP) out/transpiled.c
 	$(CC) $(CFLAGS) -o $@ out/transpiled.c
 	@echo "Built: $@"
@@ -77,9 +78,9 @@ out/test_semver.com: test_semver.zc semver.zc capture-cc.sh | deps
 out/test_platform.com: test_platform.zc platform.zc capture-cc.sh | deps
 	@mkdir -p out
 	@echo "Building platform tests..."
-	@rm -f out/transpiled.c
-	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_platform.zc
-	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	@rm -f out/transpiled.c out/capture-cc-debug.log
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_platform.zc || { echo "=== capture-cc debug log ==="; cat out/capture-cc-debug.log 2>/dev/null || echo "(no debug log found - capture-cc.sh was never called!)"; exit 1; }
+	@test -f out/transpiled.c || { echo "Error: transpilation failed"; echo "=== capture-cc debug log ==="; cat out/capture-cc-debug.log 2>/dev/null; exit 1; }
 	$(DEDUP) out/transpiled.c
 	$(CC) $(CFLAGS) -o $@ out/transpiled.c
 	@echo "Built: $@"
@@ -87,9 +88,9 @@ out/test_platform.com: test_platform.zc platform.zc capture-cc.sh | deps
 out/test_archive.com: test_archive.zc archive.zc capture-cc.sh | deps
 	@mkdir -p out
 	@echo "Building archive tests..."
-	@rm -f out/transpiled.c
-	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_archive.zc
-	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	@rm -f out/transpiled.c out/capture-cc-debug.log
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_archive.zc || { echo "=== capture-cc debug log ==="; cat out/capture-cc-debug.log 2>/dev/null || echo "(no debug log found - capture-cc.sh was never called!)"; exit 1; }
+	@test -f out/transpiled.c || { echo "Error: transpilation failed"; echo "=== capture-cc debug log ==="; cat out/capture-cc-debug.log 2>/dev/null; exit 1; }
 	$(DEDUP) out/transpiled.c
 	$(CC) $(CFLAGS) -o $@ out/transpiled.c
 	@echo "Built: $@"
@@ -97,9 +98,9 @@ out/test_archive.com: test_archive.zc archive.zc capture-cc.sh | deps
 out/test_http.com: test_http.zc http.zc capture-cc.sh | deps
 	@mkdir -p out
 	@echo "Building http tests..."
-	@rm -f out/transpiled.c
-	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_http.zc
-	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	@rm -f out/transpiled.c out/capture-cc-debug.log
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_http.zc || { echo "=== capture-cc debug log ==="; cat out/capture-cc-debug.log 2>/dev/null || echo "(no debug log found - capture-cc.sh was never called!)"; exit 1; }
+	@test -f out/transpiled.c || { echo "Error: transpilation failed"; echo "=== capture-cc debug log ==="; cat out/capture-cc-debug.log 2>/dev/null; exit 1; }
 	$(DEDUP) out/transpiled.c
 	$(CC) $(CFLAGS) -I$(MBEDTLS_DIR)/include -o $@ out/transpiled.c \
 		$$(find $(MBEDTLS_DIR)/library -maxdepth 1 -name '*.o')
@@ -108,9 +109,9 @@ out/test_http.com: test_http.zc http.zc capture-cc.sh | deps
 out/test_runtimedl.com: test_runtimedl.zc runtimedl_helpers.zc capture-cc.sh | deps
 	@mkdir -p out
 	@echo "Building runtimedl tests..."
-	@rm -f out/transpiled.c
-	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_runtimedl.zc
-	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	@rm -f out/transpiled.c out/capture-cc-debug.log
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_runtimedl.zc || { echo "=== capture-cc debug log ==="; cat out/capture-cc-debug.log 2>/dev/null || echo "(no debug log found - capture-cc.sh was never called!)"; exit 1; }
+	@test -f out/transpiled.c || { echo "Error: transpilation failed"; echo "=== capture-cc debug log ==="; cat out/capture-cc-debug.log 2>/dev/null; exit 1; }
 	$(DEDUP) out/transpiled.c
 	$(CC) $(CFLAGS) -o $@ out/transpiled.c
 	@echo "Built: $@"
@@ -125,7 +126,7 @@ test: out/test_semver.com out/test_platform.com out/test_archive.com out/test_ht
 	@echo "All tests passed."
 
 capture-cc.sh:
-	@printf '#!/bin/sh\n# Capture transpiled C and create dummy ELF output so zc.com sees success\nBASEDIR="%s"\nOUTDIR="$$BASEDIR/out"\necho "[capture-cc] CWD: $$(pwd)" >&2\necho "[capture-cc] args: $$@" >&2\nOUTFILE=""\nNEXT_IS_OUT=""\nfor f in "$$@"; do\n  if [ "$$NEXT_IS_OUT" = "1" ]; then OUTFILE="$$f"; NEXT_IS_OUT=""; continue; fi\n  case "$$f" in\n    -o) NEXT_IS_OUT="1" ;;\n    *.c)\n      echo "[capture-cc] copying $$f -> $$OUTDIR/transpiled.c" >&2\n      cp "$$f" "$$OUTDIR/transpiled.c"\n      echo "[capture-cc] cp exit: $$?" >&2\n      ;;\n  esac\ndone\n# Make OUTFILE absolute if relative\ncase "$$OUTFILE" in\n  /*) ;;\n  *) OUTFILE="$$BASEDIR/$$OUTFILE" ;;\nesac\nif [ -n "$$OUTFILE" ]; then\n  mkdir -p "$$(dirname "$$OUTFILE")"\n  printf "\\177ELF" > "$$OUTFILE" && chmod +x "$$OUTFILE"\n  echo "[capture-cc] created output: $$OUTFILE (exists: $$(test -f $$OUTFILE && echo yes || echo no))" >&2\nfi\nexit 0\n' "$(CURDIR)" > $@
+	@printf '#!/bin/sh\n# Capture transpiled C and create dummy ELF output so zc.com sees success\nBASEDIR="%s"\nOUTDIR="$$BASEDIR/out"\nLOG="$$BASEDIR/out/capture-cc-debug.log"\nmkdir -p "$$OUTDIR"\necho "[capture-cc] $$(date)" >> "$$LOG"\necho "[capture-cc] CWD: $$(pwd)" >> "$$LOG"\necho "[capture-cc] args: $$@" >> "$$LOG"\necho "[capture-cc] PATH: $$PATH" >> "$$LOG"\necho "[capture-cc] shell: $$SHELL $$(readlink /proc/$$$$/exe 2>/dev/null || echo unknown)" >> "$$LOG"\nOUTFILE=""\nNEXT_IS_OUT=""\nfor f in "$$@"; do\n  if [ "$$NEXT_IS_OUT" = "1" ]; then OUTFILE="$$f"; NEXT_IS_OUT=""; continue; fi\n  case "$$f" in\n    -o) NEXT_IS_OUT="1" ;;\n    *.c)\n      echo "[capture-cc] found .c file: $$f" >> "$$LOG"\n      echo "[capture-cc] .c file exists: $$(test -f $$f && echo yes || echo no)" >> "$$LOG"\n      cp "$$f" "$$OUTDIR/transpiled.c"\n      echo "[capture-cc] cp exit: $$?" >> "$$LOG"\n      echo "[capture-cc] transpiled.c exists: $$(test -f $$OUTDIR/transpiled.c && echo yes || echo no)" >> "$$LOG"\n      ;;\n  esac\ndone\n# Make OUTFILE absolute if relative\ncase "$$OUTFILE" in\n  /*) ;;\n  *) OUTFILE="$$BASEDIR/$$OUTFILE" ;;\nesac\necho "[capture-cc] OUTFILE: $$OUTFILE" >> "$$LOG"\nif [ -n "$$OUTFILE" ]; then\n  mkdir -p "$$(dirname "$$OUTFILE")"\n  printf "\\177ELF" > "$$OUTFILE" && chmod +x "$$OUTFILE"\n  echo "[capture-cc] created output: $$OUTFILE (exists: $$(test -f $$OUTFILE && echo yes || echo no), size: $$(wc -c < $$OUTFILE 2>/dev/null || echo unknown))" >> "$$LOG"\nfi\necho "[capture-cc] exiting 0" >> "$$LOG"\nexit 0\n' "$(CURDIR)" > $@
 	@chmod +x $@
 
 clean:
