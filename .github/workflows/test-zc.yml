@@ -1,0 +1,38 @@
+name: Test Zen-C
+
+on:
+  push:
+    paths:
+      - 'src/zc-runtimedl/**'
+  pull_request:
+    paths:
+      - 'src/zc-runtimedl/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup zc-ape toolchain
+        run: |
+          cd src/zc-runtimedl
+          curl -L -o zc-boot.com https://github.com/OEvgeny/zc-ape/releases/download/v0.0.2/zc-boot.com
+          chmod +x zc-boot.com
+          ./zc-boot.com
+
+      - name: Register APE loader
+        run: |
+          sudo cp src/zc-runtimedl/usr/bin/ape-x86_64.elf /usr/bin/ape || true
+          sudo sh -c "echo ':APE:M::MZqFpD::/usr/bin/ape:' >/proc/sys/fs/binfmt_misc/register" || true
+
+      - name: Run tests
+        run: |
+          cd src/zc-runtimedl
+          make test
+
+      - name: Build full binary
+        run: |
+          cd src/zc-runtimedl
+          make all
