@@ -1,0 +1,119 @@
+// test_runtimedl.zc — Unit tests for runtimedl helper functions
+
+import "./runtimedl_helpers.zc"
+
+raw {
+#include <string.h>
+}
+
+// ---- is_false_str tests ----
+
+test "is_false_str false" {
+    assert(is_false_str("false") == 1, "\"false\" should be false")
+}
+
+test "is_false_str 0" {
+    assert(is_false_str("0") == 1, "\"0\" should be false")
+}
+
+test "is_false_str False" {
+    assert(is_false_str("False") == 1, "\"False\" should be false")
+}
+
+test "is_false_str true" {
+    assert(is_false_str("true") == 0, "\"true\" should not be false")
+}
+
+test "is_false_str 1" {
+    assert(is_false_str("1") == 0, "\"1\" should not be false")
+}
+
+test "is_false_str empty" {
+    assert(is_false_str("") == 0, "empty string should not be false")
+}
+
+// ---- normalize_runtime_type tests ----
+
+test "normalize_runtime_type lowercase" {
+    raw { char buf[64]; strcpy(buf, "SDK"); }
+    normalize_runtime_type(buf)
+    raw { assert(strcmp(buf, "sdk") == 0, "should lowercase SDK"); }
+}
+
+test "normalize_runtime_type underscore to dash" {
+    raw { char buf[64]; strcpy(buf, "runtime_aspnetcore"); }
+    normalize_runtime_type(buf)
+    raw { assert(strcmp(buf, "runtime-aspnetcore") == 0, "should replace _ with -"); }
+}
+
+test "normalize_runtime_type mixed" {
+    raw { char buf[64]; strcpy(buf, "Runtime_Desktop"); }
+    normalize_runtime_type(buf)
+    raw { assert(strcmp(buf, "runtime-desktop") == 0, "should lowercase and replace _"); }
+}
+
+test "normalize_runtime_type already normal" {
+    raw { char buf[64]; strcpy(buf, "runtime"); }
+    normalize_runtime_type(buf)
+    raw { assert(strcmp(buf, "runtime") == 0, "should remain unchanged"); }
+}
+
+// ---- strtolower tests ----
+
+test "strtolower basic" {
+    raw { char buf[64]; strcpy(buf, "HELLO"); }
+    strtolower(buf)
+    raw { assert(strcmp(buf, "hello") == 0, "should lowercase"); }
+}
+
+test "strtolower mixed" {
+    raw { char buf[64]; strcpy(buf, "HeLLo WoRLd"); }
+    strtolower(buf)
+    raw { assert(strcmp(buf, "hello world") == 0, "should lowercase mixed case"); }
+}
+
+test "strtolower already lower" {
+    raw { char buf[64]; strcpy(buf, "abc"); }
+    strtolower(buf)
+    raw { assert(strcmp(buf, "abc") == 0, "should remain unchanged"); }
+}
+
+// ---- get_filename_from_url tests ----
+
+test "get_filename_from_url basic" {
+    let result = get_filename_from_url("https://example.com/path/file.tar.gz")
+    raw { assert(strcmp(result, "file.tar.gz") == 0, "should extract filename"); }
+}
+
+test "get_filename_from_url no slash" {
+    let result = get_filename_from_url("noscheme")
+    raw { assert(strcmp(result, "download") == 0, "should default to download"); }
+}
+
+test "get_filename_from_url trailing slash" {
+    let result = get_filename_from_url("https://example.com/")
+    raw { assert(strcmp(result, "download") == 0, "trailing slash should default to download"); }
+}
+
+test "get_filename_from_url deep path" {
+    let result = get_filename_from_url("https://cdn.example.com/a/b/c/dotnet-runtime-8.0.0-linux-x64.tar.gz")
+    raw { assert(strcmp(result, "dotnet-runtime-8.0.0-linux-x64.tar.gz") == 0, "should extract deep filename"); }
+}
+
+// ---- detect_archive_format tests ----
+
+test "detect_archive_format tar.gz" {
+    assert(detect_archive_format("file.tar.gz") == 1, "tar.gz should return 1")
+}
+
+test "detect_archive_format zip" {
+    assert(detect_archive_format("file.zip") == 2, "zip should return 2")
+}
+
+test "detect_archive_format unknown" {
+    assert(detect_archive_format("file.deb") == 0, "unknown should return 0")
+}
+
+test "detect_archive_format tgz in middle" {
+    assert(detect_archive_format("archive.tar.gz.bak") == 0, "tar.gz not at end should return 0")
+}

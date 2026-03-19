@@ -15,7 +15,7 @@ ZENC_STD_DIR = extern/zenc-std
 CAPTURE_CC = $(realpath .)/capture-cc.sh
 
 # Source modules (zc.com follows imports from entry point)
-ZC_SOURCES = runtimedl.zc runtimedb.zc semver.zc platform.zc http.zc archive.zc
+ZC_SOURCES = runtimedl.zc runtimedl_helpers.zc runtimedb.zc semver.zc platform.zc http.zc archive.zc
 
 all: out/runtimedl.com
 
@@ -97,12 +97,22 @@ out/test_http.com: test_http.zc http.zc capture-cc.sh | deps
 		$$(find $(MBEDTLS_DIR)/library -maxdepth 1 -name '*.o')
 	@echo "Built: $@"
 
-test: out/test_semver.com out/test_platform.com out/test_archive.com out/test_http.com
+out/test_runtimedl.com: test_runtimedl.zc runtimedl_helpers.zc capture-cc.sh | deps
+	@mkdir -p out
+	@echo "Building runtimedl tests..."
+	@rm -f out/transpiled.c
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_runtimedl.zc 2>/dev/null || true
+	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	$(CC) $(CFLAGS) -o $@ out/transpiled.c
+	@echo "Built: $@"
+
+test: out/test_semver.com out/test_platform.com out/test_archive.com out/test_http.com out/test_runtimedl.com
 	@echo "Running tests..."
 	./out/test_semver.com
 	./out/test_platform.com
 	./out/test_archive.com
 	./out/test_http.com
+	./out/test_runtimedl.com
 	@echo "All tests passed."
 
 capture-cc.sh:

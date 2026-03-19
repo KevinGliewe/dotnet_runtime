@@ -6,39 +6,36 @@
 
 import "./runtimedb.zc"
 import "./archive.zc"
-import "./extern/zenc-std/io.zc"
+import "./runtimedl_helpers.zc"
 
 raw {
 #include <getopt.h>
 
 #define VERSION "1.0.0"
-
-static void print_usage(const char* prog) {
-    printf("runtimedl v%s - .NET Runtime Downloader (APE)\n\n", VERSION);
-    printf("Usage: %s [options]\n\n", prog);
-    printf("Options:\n");
-    printf("  --runtime-type TYPE    Runtime type: sdk, runtime, runtime-aspnetcore,\n");
-    printf("                         runtime-desktop (default: runtime)\n");
-    printf("  --platform PLATFORM    Platform: linux, windows, macos, local\n");
-    printf("                         (default: local = auto-detect)\n");
-    printf("  --architecture ARCH    Architecture: x64, x86, arm64, arm32,\n");
-    printf("                         arm64-alpine, local (default: local = auto-detect)\n");
-    printf("  --version-pattern PAT  Semver range: >1.0.0, >=8.0.0, ^8.0.0, etc.\n");
-    printf("                         (default: >0.0.0)\n");
-    printf("  --include-prerelease   Include prerelease versions (default: false)\n");
-    printf("  --output DIR           Output directory (default: ./runtime)\n");
-    printf("  --download BOOL        Download the runtime (default: true)\n");
-    printf("  --help                 Show this help message\n");
-    printf("  --version              Show version information\n");
 }
 
-static void strtolower(char *s) {
-    for (; *s; s++) if (*s >= 'A' && *s <= 'Z') *s += 32;
-}
+fn print_usage(_prog: char*) {
+    raw { printf("runtimedl v%s - .NET Runtime Downloader (APE)\n\n", VERSION); }
+    println "Usage: {_prog} [options]"
+    println ""
+    println "Options:"
+    println "  --runtime-type TYPE    Runtime type: sdk, runtime, runtime-aspnetcore,"
+    println "                         runtime-desktop (default: runtime)"
+    println "  --platform PLATFORM    Platform: linux, windows, macos, local"
+    println "                         (default: local = auto-detect)"
+    println "  --architecture ARCH    Architecture: x64, x86, arm64, arm32,"
+    println "                         arm64-alpine, local (default: local = auto-detect)"
+    println "  --version-pattern PAT  Semver range: >1.0.0, >=8.0.0, ^8.0.0, etc."
+    println "                         (default: >0.0.0)"
+    println "  --include-prerelease   Include prerelease versions (default: false)"
+    println "  --output DIR           Output directory (default: ./runtime)"
+    println "  --download BOOL        Download the runtime (default: true)"
+    println "  --help                 Show this help message"
+    println "  --version              Show version information"
 }
 
 fn main() {
-    // Argument parsing via getopt_long (C-only, kept in raw block)
+    // Argument parsing via getopt_long (C struct/macro required)
     raw {
         char runtime_type[64] = "runtime";
         char platform[64] = "local";
@@ -83,22 +80,19 @@ fn main() {
                 case 'o': strncpy(output, optarg,
                                   sizeof(output)-1); break;
                 case 'd':
-                    if (strcmp(optarg, "false") == 0 ||
-                        strcmp(optarg, "0") == 0 ||
-                        strcmp(optarg, "False") == 0)
-                        do_download = 0;
+                    if (is_false_str(optarg)) do_download = 0;
                     break;
                 case 'h': print_usage(argv[0]); exit(0);
                 case 'V': printf("runtimedl v%s (APE)\n", VERSION); exit(0);
                 default: print_usage(argv[0]); exit(1);
             }
         }
-
-        strtolower(runtime_type);
-        for (char *p = runtime_type; *p; p++) if (*p == '_') *p = '-';
-        strtolower(platform);
-        strtolower(architecture);
     }
+
+    // Normalize arguments using Zen-C functions
+    normalize_runtime_type(runtime_type)
+    strtolower(platform)
+    strtolower(architecture)
 
     // Platform auto-detection using Zen-C String comparisons
     let platform_s = String::new(platform)
@@ -147,10 +141,9 @@ fn main() {
     raw {
         const char *tmpdir = "/tmp/runtimedl";
         mkdir(tmpdir, 0755);
-        const char *fname = strrchr(entry.url, '/');
-        if (!fname) fname = "download"; else fname++;
         char tmpfile[MAX_PATH_LEN];
     }
+    let fname = get_filename_from_url(entry.url)
     format_into(tmpfile, MAX_PATH_LEN, "%s/%s", tmpdir, fname)
 
     raw {
@@ -161,19 +154,25 @@ fn main() {
     }
     println "Download complete"
 
-    // Checksum verification (kept mostly in raw for C string manipulation)
+    // Checksum verification
     raw {
-        if (entry.checksum[0]) {
-            printf("Verifying checksum...\n");
-            char computed[129];
+        char _has_checksum = entry.checksum[0];
+        char computed[129];
+        char expected_lower[256];
+    }
+    if (_has_checksum) {
+        println "Verifying checksum..."
+        raw {
             compute_file_sha512(tmpfile, computed);
-            char expected_lower[256];
-            strncpy(expected_lower, entry.checksum,
-                    sizeof(expected_lower)-1);
+            strncpy(expected_lower, entry.checksum, sizeof(expected_lower)-1);
             expected_lower[sizeof(expected_lower)-1] = 0;
-            strtolower(expected_lower);
-            strtolower(computed);
-            if (strcmp(computed, expected_lower) != 0) {
+        }
+        strtolower(expected_lower)
+        strtolower(computed)
+        let computed_s = String::new(computed)
+        let expected_s = String::new(expected_lower)
+        if (!computed_s.eq(&expected_s)) {
+            raw {
                 fprintf(stderr,
                     "Error: Checksum mismatch!\n"
                     "  Expected: %s\n  Got:      %s\n",
@@ -181,8 +180,8 @@ fn main() {
                 remove(tmpfile);
                 exit(1);
             }
-            printf("Hash OK          : %s\n", computed);
         }
+        println "Hash OK          : {(char*)computed}"
     }
 
     println "Unpacking..."
@@ -192,16 +191,16 @@ fn main() {
     format_into(outdir, MAX_PATH_LEN, "%s/%s/%s", output, platform, architecture)
     raw { mkdirp(outdir); }
 
-    // Archive extraction using Zen-C String for format detection
-    let tmpfile_s = String::new(tmpfile)
-    if (tmpfile_s.contains_str(".tar.gz")) {
+    // Archive extraction using Zen-C format detection
+    let archive_fmt = detect_archive_format(tmpfile)
+    if (archive_fmt == 1) {
         raw {
             if (extract_tar_gz(tmpfile, outdir) != 0) {
                 fprintf(stderr, "Error: Extraction failed\n");
                 exit(1);
             }
         }
-    } else if (tmpfile_s.contains_str(".zip")) {
+    } else if (archive_fmt == 2) {
         raw {
             if (extract_zip(tmpfile, outdir) != 0) {
                 fprintf(stderr, "Error: Zip extraction failed\n");
@@ -209,7 +208,7 @@ fn main() {
             }
         }
     } else {
-        raw { fprintf(stderr, "Error: Unknown archive format: %s\n", tmpfile); }
+        println "Error: Unknown archive format: {(char*)tmpfile}"
         raw { exit(1); }
     }
 
