@@ -1,6 +1,7 @@
 // runtimedb.zc — Query Microsoft's .NET release metadata using Zen-C JSON
 
 import "./extern/zenc-std/json.zc"
+import "./extern/zenc-std/io.zc"
 import "./semver.zc"
 import "./platform.zc"
 import "./http.zc"
@@ -14,18 +15,14 @@ typedef struct {
     char version[64];
 } RuntimeEntry;
 
-static int find_best_entry(const char* runtime_type, const char* platform,
-                           const char* arch, const char* version_pattern,
-                           int include_prerelease, RuntimeEntry* result);
-
-int _find_best_entry_impl(char* runtime_type, char* platform, char* arch,
-                           char* version_pattern, int include_prerelease,
-                           RuntimeEntry* result);
+int find_best_entry(char* runtime_type, char* platform, char* arch,
+                    char* version_pattern, int include_prerelease,
+                    RuntimeEntry* result);
 }
 
-fn _find_best_entry_impl(runtime_type: char*, platform: char*, arch: char*,
-                          version_pattern: char*, include_prerelease: int,
-                          result: RuntimeEntry*) -> int {
+fn find_best_entry(runtime_type: char*, platform: char*, arch: char*,
+                   version_pattern: char*, include_prerelease: int,
+                   result: RuntimeEntry*) -> int {
 
     let json_key = type_to_json_key(runtime_type)
     let file_prefix_str = String::new(type_to_file_prefix(runtime_type))
@@ -42,18 +39,18 @@ fn _find_best_entry_impl(runtime_type: char*, platform: char*, arch: char*,
         SemVer best_ver = {0};
         int found = 0;
         size_t fetch_len;
-
         char *index_json = fetch_url(RELEASES_INDEX_URL, &fetch_len);
-        if (!index_json) {
-            fprintf(stderr, "Error: Failed to fetch releases index\n");
-            return -1;
-        }
+    }
+
+    if (index_json == NULL) {
+        println "Error: Failed to fetch releases index"
+        return -1
     }
 
     let index_result = JsonValue::parse(index_json)
     raw { free(index_json); }
     if (index_result.is_err()) {
-        raw { fprintf(stderr, "Error: Failed to parse releases index JSON\n"); }
+        println "Error: Failed to parse releases index JSON"
         return -1
     }
     let index: JsonValue* = index_result.unwrap()
@@ -121,7 +118,6 @@ fn _find_best_entry_impl(runtime_type: char*, platform: char*, arch: char*,
                 if (file_rid_opt.is_none()) { continue }
                 let file_rid: char* = file_rid_opt.unwrap()
 
-                // Compare RID using Zen-C String
                 let file_rid_s = String::new(file_rid)
                 let rid_s = String::new(rid)
                 if (!file_rid_s.eq(&rid_s)) { continue }
@@ -130,7 +126,6 @@ fn _find_best_entry_impl(runtime_type: char*, platform: char*, arch: char*,
                 if (fname_opt.is_none()) { continue }
                 let fname: char* = fname_opt.unwrap()
 
-                // Check filename prefix and extension using Zen-C String
                 let fname_s = String::new(fname)
                 if (!fname_s.starts_with(file_prefix_str.c_str())) { continue }
                 if (!fname_s.ends_with(ext_str.c_str())) { continue }
@@ -163,16 +158,8 @@ fn _find_best_entry_impl(runtime_type: char*, platform: char*, arch: char*,
         }
     }
 
-    raw { return found ? 0 : -1; }
+    if (found) {
+        return 0
+    }
     return -1
-}
-
-raw {
-static int find_best_entry(const char* runtime_type, const char* platform,
-                           const char* arch, const char* version_pattern,
-                           int include_prerelease, RuntimeEntry* result) {
-    return _find_best_entry_impl((char*)runtime_type, (char*)platform,
-                                  (char*)arch, (char*)version_pattern,
-                                  include_prerelease, result);
-}
 }

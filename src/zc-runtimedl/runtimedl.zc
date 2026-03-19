@@ -6,6 +6,7 @@
 
 import "./runtimedb.zc"
 import "./archive.zc"
+import "./extern/zenc-std/io.zc"
 
 raw {
 #include <getopt.h>
@@ -37,6 +38,7 @@ static void strtolower(char *s) {
 }
 
 fn main() {
+    // Argument parsing via getopt_long (C-only, kept in raw block)
     raw {
         char runtime_type[64] = "runtime";
         char platform[64] = "local";
@@ -96,24 +98,30 @@ fn main() {
         for (char *p = runtime_type; *p; p++) if (*p == '_') *p = '-';
         strtolower(platform);
         strtolower(architecture);
+    }
 
-        if (strcmp(platform, "local") == 0 ||
-            strcmp(architecture, "local") == 0) {
+    // Platform auto-detection using Zen-C String comparisons
+    let platform_s = String::new(platform)
+    let arch_s = String::new(architecture)
+    if (platform_s.eq_str("local") || arch_s.eq_str("local")) {
+        raw {
             DetectedSystem sys = detect_system();
             if (strcmp(platform, "local") == 0)
                 strcpy(platform, sys.platform);
             if (strcmp(architecture, "local") == 0)
                 strcpy(architecture, sys.arch);
         }
+    }
 
-        printf("Runtime Type     : %s\n", runtime_type);
-        printf("Platform         : %s\n", platform);
-        printf("Architecture     : %s\n", architecture);
-        printf("Version Pattern  : %s\n", version_pattern);
-        printf("Output           : %s\n", output);
-        printf("\n");
+    println "Runtime Type     : {(char*)runtime_type}"
+    println "Platform         : {(char*)platform}"
+    println "Architecture     : {(char*)architecture}"
+    println "Version Pattern  : {(char*)version_pattern}"
+    println "Output           : {(char*)output}"
+    println ""
 
-        printf("Querying releases...\n");
+    println "Querying releases..."
+    raw {
         RuntimeEntry entry = {{0}, {0}, {0}};
         if (find_best_entry(runtime_type, platform, architecture,
                             version_pattern, include_prerelease,
@@ -124,31 +132,37 @@ fn main() {
                 runtime_type, platform, architecture, version_pattern);
             exit(1);
         }
+    }
 
-        printf("Found Entry      :\n");
-        printf("  Version        : %s\n", entry.version);
-        printf("  URL            : %s\n", entry.url);
-        printf("  Checksum       : %s\n", entry.checksum);
-        printf("\n");
+    println "Found Entry      :"
+    println "  Version        : {(char*)entry.version}"
+    println "  URL            : {(char*)entry.url}"
+    println "  Checksum       : {(char*)entry.checksum}"
+    println ""
 
-        if (!do_download) {
-            exit(0);
-        }
+    if (!do_download) {
+        raw { exit(0); }
+    }
 
+    raw {
         const char *tmpdir = "/tmp/runtimedl";
         mkdir(tmpdir, 0755);
-
         const char *fname = strrchr(entry.url, '/');
         if (!fname) fname = "download"; else fname++;
         char tmpfile[MAX_PATH_LEN];
-        snprintf(tmpfile, sizeof(tmpfile), "%s/%s", tmpdir, fname);
+    }
+    format_into(tmpfile, MAX_PATH_LEN, "%s/%s", tmpdir, fname)
 
+    raw {
         if (download_file(entry.url, tmpfile) != 0) {
             fprintf(stderr, "Error: Download failed\n");
             exit(1);
         }
-        printf("Download complete\n");
+    }
+    println "Download complete"
 
+    // Checksum verification (kept mostly in raw for C string manipulation)
+    raw {
         if (entry.checksum[0]) {
             printf("Verifying checksum...\n");
             char computed[129];
@@ -169,31 +183,38 @@ fn main() {
             }
             printf("Hash OK          : %s\n", computed);
         }
+    }
 
-        printf("Unpacking...\n");
+    println "Unpacking..."
+    raw {
         char outdir[MAX_PATH_LEN];
-        snprintf(outdir, sizeof(outdir), "%s/%s/%s",
-                 output, platform, architecture);
-        mkdirp(outdir);
+    }
+    format_into(outdir, MAX_PATH_LEN, "%s/%s/%s", output, platform, architecture)
+    raw { mkdirp(outdir); }
 
-        if (strstr(tmpfile, ".tar.gz")) {
+    // Archive extraction using Zen-C String for format detection
+    let tmpfile_s = String::new(tmpfile)
+    if (tmpfile_s.contains_str(".tar.gz")) {
+        raw {
             if (extract_tar_gz(tmpfile, outdir) != 0) {
                 fprintf(stderr, "Error: Extraction failed\n");
                 exit(1);
             }
-        } else if (strstr(tmpfile, ".zip")) {
+        }
+    } else if (tmpfile_s.contains_str(".zip")) {
+        raw {
             if (extract_zip(tmpfile, outdir) != 0) {
                 fprintf(stderr, "Error: Zip extraction failed\n");
                 exit(1);
             }
-        } else {
-            fprintf(stderr, "Error: Unknown archive format: %s\n", tmpfile);
-            exit(1);
         }
-
-        printf("Cleaning up\n");
-        remove(tmpfile);
-
-        printf("Done\n");
+    } else {
+        raw { fprintf(stderr, "Error: Unknown archive format: %s\n", tmpfile); }
+        raw { exit(1); }
     }
+
+    println "Cleaning up"
+    raw { remove(tmpfile); }
+
+    println "Done"
 }
