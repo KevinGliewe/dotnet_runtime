@@ -1,0 +1,92 @@
+// platform.zc — Platform/architecture detection and RID mapping
+
+raw {
+#include <string.h>
+#include <sys/utsname.h>
+
+typedef struct {
+    char platform[32];
+    char arch[32];
+} DetectedSystem;
+
+static DetectedSystem detect_system(void) {
+    DetectedSystem sys = {{0}, {0}};
+    struct utsname un;
+    if (uname(&un) == 0) {
+        if (strstr(un.sysname, "Linux")) strcpy(sys.platform, "linux");
+        else if (strstr(un.sysname, "Darwin")) strcpy(sys.platform, "macos");
+        else if (strstr(un.sysname, "MINGW") || strstr(un.sysname, "CYGWIN") ||
+                 strstr(un.sysname, "Windows") || strstr(un.sysname, "MSYS"))
+            strcpy(sys.platform, "windows");
+        else if (strstr(un.sysname, "FreeBSD")) strcpy(sys.platform, "linux");
+        else strcpy(sys.platform, "linux");
+
+        if (strstr(un.machine, "x86_64") || strstr(un.machine, "amd64"))
+            strcpy(sys.arch, "x64");
+        else if (strstr(un.machine, "aarch64") || strstr(un.machine, "arm64"))
+            strcpy(sys.arch, "arm64");
+        else if (strstr(un.machine, "armv7") || strstr(un.machine, "armhf"))
+            strcpy(sys.arch, "arm32");
+        else if (strstr(un.machine, "i686") || strstr(un.machine, "i386"))
+            strcpy(sys.arch, "x86");
+        else
+            strcpy(sys.arch, "x64");
+    } else {
+        strcpy(sys.platform, "linux");
+        strcpy(sys.arch, "x64");
+    }
+    return sys;
+}
+}
+
+fn platform_to_rid(platform: char*) -> char* {
+    raw {
+        if (strcmp(platform, "windows") == 0) return "win";
+        if (strcmp(platform, "macos") == 0) return "osx";
+        if (strcmp(platform, "linux") == 0) return "linux";
+    }
+    return platform
+}
+
+fn arch_to_rid(arch: char*) -> char* {
+    raw {
+        if (strcmp(arch, "arm32") == 0) return "arm";
+    }
+    return arch
+}
+
+fn build_rid(platform: char*, arch: char*, out: char*, out_sz: int) {
+    raw {
+        const char *alpine = strstr(arch, "-alpine");
+        if (alpine) {
+            char base_arch[32];
+            size_t base_len = alpine - arch;
+            if (base_len >= sizeof(base_arch)) base_len = sizeof(base_arch) - 1;
+            memcpy(base_arch, arch, base_len);
+            base_arch[base_len] = 0;
+            snprintf(out, out_sz, "linux-musl-%s", arch_to_rid(base_arch));
+            return;
+        }
+        snprintf(out, out_sz, "%s-%s", platform_to_rid(platform), arch_to_rid(arch));
+    }
+}
+
+fn type_to_json_key(runtime_type: char*) -> char* {
+    raw {
+        if (strcmp(runtime_type, "sdk") == 0) return "sdk";
+        if (strcmp(runtime_type, "runtime") == 0) return "runtime";
+        if (strcmp(runtime_type, "runtime-aspnetcore") == 0) return "aspnetcore-runtime";
+        if (strcmp(runtime_type, "runtime-desktop") == 0) return "windowsdesktop";
+    }
+    return "runtime"
+}
+
+fn type_to_file_prefix(runtime_type: char*) -> char* {
+    raw {
+        if (strcmp(runtime_type, "sdk") == 0) return "dotnet-sdk-";
+        if (strcmp(runtime_type, "runtime") == 0) return "dotnet-runtime-";
+        if (strcmp(runtime_type, "runtime-aspnetcore") == 0) return "aspnetcore-runtime-";
+        if (strcmp(runtime_type, "runtime-desktop") == 0) return "windowsdesktop-runtime-";
+    }
+    return "dotnet-runtime-"
+}

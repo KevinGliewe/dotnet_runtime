@@ -1,0 +1,176 @@
+// runtimedb.zc — Query Microsoft's .NET release metadata using Zen-C JSON
+
+import "./extern/zenc-std/json.zc"
+import "./semver.zc"
+import "./platform.zc"
+import "./http.zc"
+
+raw {
+#define RELEASES_INDEX_URL "https://dotnetcli.blob.core.windows.net/dotnet/release-metadata/releases-index.json"
+
+typedef struct {
+    char url[MAX_URL];
+    char checksum[256];
+    char version[64];
+} RuntimeEntry;
+
+static int find_best_entry(const char* runtime_type, const char* platform,
+                           const char* arch, const char* version_pattern,
+                           int include_prerelease, RuntimeEntry* result);
+
+// Forward declare the Zen-C implementation (defined below)
+int _find_best_entry_impl(char* runtime_type, char* platform, char* arch,
+                           char* version_pattern, int include_prerelease,
+                           RuntimeEntry* result);
+}
+
+fn _find_best_entry_impl(runtime_type: char*, platform: char*, arch: char*,
+                          version_pattern: char*, include_prerelease: int,
+                          result: RuntimeEntry*) -> int {
+
+    let json_key = type_to_json_key(runtime_type)
+    let file_prefix = type_to_file_prefix(runtime_type)
+
+    raw {
+        char rid[64];
+        build_rid(platform, arch, rid, sizeof(rid));
+        const char *ext = (strcmp(platform, "windows") == 0) ? ".zip" : ".tar.gz";
+        SemVer best_ver = {0};
+        int found = 0;
+        size_t fetch_len;
+
+        char *index_json = fetch_url(RELEASES_INDEX_URL, &fetch_len);
+        if (!index_json) {
+            fprintf(stderr, "Error: Failed to fetch releases index\n");
+            return -1;
+        }
+    }
+
+    let index_result = JsonValue::parse(index_json)
+    raw { free(index_json); }
+    if (index_result.is_err()) {
+        raw { fprintf(stderr, "Error: Failed to parse releases index JSON\n"); }
+        return -1
+    }
+    let index: JsonValue* = index_result.unwrap()
+
+    let ri_opt = (*index).get_array("releases-index")
+    if (ri_opt.is_none()) {
+        return -1
+    }
+    let ri: JsonValue* = ri_opt.unwrap()
+    let ri_len = (*ri).len()
+
+    for (let i: usize = 0; i < ri_len; i = i + 1) {
+        let channel_opt = (*ri).at(i)
+        if (channel_opt.is_none()) { raw { continue; } }
+        let channel: JsonValue* = channel_opt.unwrap()
+
+        let rel_url_opt = (*channel).get_string("releases.json")
+        if (rel_url_opt.is_none()) { raw { continue; } }
+        let rel_url: char* = rel_url_opt.unwrap()
+
+        raw {
+            char *chan_json = fetch_url(rel_url, &fetch_len);
+            if (!chan_json) continue;
+        }
+
+        let chan_result = JsonValue::parse(chan_json)
+        raw { free(chan_json); }
+        if (chan_result.is_err()) { raw { continue; } }
+        let chan: JsonValue* = chan_result.unwrap()
+
+        let releases_opt = (*chan).get_array("releases")
+        if (releases_opt.is_none()) { raw { continue; } }
+        let releases: JsonValue* = releases_opt.unwrap()
+        let releases_len = (*releases).len()
+
+        for (let j: usize = 0; j < releases_len; j = j + 1) {
+            let release_opt = (*releases).at(j)
+            if (release_opt.is_none()) { raw { continue; } }
+            let release: JsonValue* = release_opt.unwrap()
+
+            let component_opt = (*release).get(json_key)
+            if (component_opt.is_none()) { raw { continue; } }
+            let component: JsonValue* = component_opt.unwrap()
+
+            let ver_str_opt = (*component).get_string("version")
+            if (ver_str_opt.is_none()) { raw { continue; } }
+            let ver_str: char* = ver_str_opt.unwrap()
+
+            raw {
+                SemVer ver;
+                if (_sv_parse(ver_str, &ver) != 0) continue;
+                if (!semver_satisfies(&ver, version_pattern, include_prerelease))
+                    continue;
+            }
+
+            let files_opt = (*component).get_array("files")
+            if (files_opt.is_none()) { raw { continue; } }
+            let files: JsonValue* = files_opt.unwrap()
+            let files_len = (*files).len()
+
+            for (let k: usize = 0; k < files_len; k = k + 1) {
+                let file_opt = (*files).at(k)
+                if (file_opt.is_none()) { raw { continue; } }
+                let file: JsonValue* = file_opt.unwrap()
+
+                let file_rid_opt = (*file).get_string("rid")
+                if (file_rid_opt.is_none()) { raw { continue; } }
+                let file_rid: char* = file_rid_opt.unwrap()
+                raw { if (strcmp(file_rid, rid) != 0) continue; }
+
+                let fname_opt = (*file).get_string("name")
+                if (fname_opt.is_none()) { raw { continue; } }
+                let fname: char* = fname_opt.unwrap()
+
+                raw {
+                    if (strncmp(fname, file_prefix, strlen(file_prefix)) != 0)
+                        continue;
+                    size_t fname_len = strlen(fname);
+                    size_t ext_len = strlen(ext);
+                    if (fname_len < ext_len) continue;
+                    if (strcmp(fname + fname_len - ext_len, ext) != 0) continue;
+                }
+
+                let url_val_opt = (*file).get_string("url")
+                if (url_val_opt.is_none()) { raw { continue; } }
+                let url_val: char* = url_val_opt.unwrap()
+
+                let hash_val: char* = NULL
+                let hash_val_opt = (*file).get_string("hash")
+                if (!hash_val_opt.is_none()) {
+                    hash_val = hash_val_opt.unwrap()
+                }
+
+                raw {
+                    if (!found || semver_cmp(&ver, &best_ver) > 0) {
+                        strncpy(result->url, url_val, sizeof(result->url) - 1);
+                        if (hash_val)
+                            strncpy(result->checksum, hash_val,
+                                    sizeof(result->checksum) - 1);
+                        else
+                            result->checksum[0] = 0;
+                        strncpy(result->version, ver_str,
+                                sizeof(result->version) - 1);
+                        best_ver = ver;
+                        found = 1;
+                    }
+                }
+            }
+        }
+    }
+
+    raw { return found ? 0 : -1; }
+    return -1
+}
+
+raw {
+static int find_best_entry(const char* runtime_type, const char* platform,
+                           const char* arch, const char* version_pattern,
+                           int include_prerelease, RuntimeEntry* result) {
+    return _find_best_entry_impl((char*)runtime_type, (char*)platform,
+                                  (char*)arch, (char*)version_pattern,
+                                  include_prerelease, result);
+}
+}

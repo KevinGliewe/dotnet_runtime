@@ -1,0 +1,602 @@
+// http.zc — HTTPS client via mbedTLS
+
+raw {
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
+#include <mbedtls/net_sockets.h>
+#include <mbedtls/ssl.h>
+#include <mbedtls/ssl_ciphersuites.h>
+#include <mbedtls/entropy.h>
+#include <mbedtls/ctr_drbg.h>
+#include <mbedtls/sha512.h>
+#include <mbedtls/error.h>
+
+#include <sys/random.h>
+
+// Custom entropy source for cosmopolitan libc
+static int cosmo_entropy_func(void *data, unsigned char *output, size_t len) {
+    (void)data;
+    ssize_t ret = getrandom(output, len, 0);
+    if (ret < 0 || (size_t)ret != len) return -1;
+    return 0;
+}
+
+#define MAX_URL 2048
+#define MAX_PATH_LEN 4096
+
+// ============================================================================
+// URL parsing
+// ============================================================================
+
+typedef struct {
+    char host[256];
+    char port[8];
+    char path[MAX_URL];
+    int is_https;
+} ParsedURL;
+
+static int parse_url(const char* url, ParsedURL* out) {
+    memset(out, 0, sizeof(*out));
+    const char* p = url;
+    if (strncmp(p, "https://", 8) == 0) {
+        out->is_https = 1; p += 8; strcpy(out->port, "443");
+    } else if (strncmp(p, "http://", 7) == 0) {
+        out->is_https = 0; p += 7; strcpy(out->port, "80");
+    } else return -1;
+
+    const char* slash = strchr(p, '/');
+    const char* colon = strchr(p, ':');
+
+    if (colon && (!slash || colon < slash)) {
+        size_t host_len = colon - p;
+        if (host_len >= sizeof(out->host)) host_len = sizeof(out->host) - 1;
+        memcpy(out->host, p, host_len);
+        out->host[host_len] = 0;
+        colon++;
+        const char* port_end = slash ? slash : p + strlen(p);
+        size_t port_len = port_end - colon;
+        if (port_len >= sizeof(out->port)) port_len = sizeof(out->port) - 1;
+        memcpy(out->port, colon, port_len);
+        out->port[port_len] = 0;
+    } else {
+        size_t host_len = slash ? (size_t)(slash - p) : strlen(p);
+        if (host_len >= sizeof(out->host)) host_len = sizeof(out->host) - 1;
+        memcpy(out->host, p, host_len);
+        out->host[host_len] = 0;
+    }
+
+    if (slash) {
+        strncpy(out->path, slash, sizeof(out->path) - 1);
+    } else {
+        strcpy(out->path, "/");
+    }
+    return 0;
+}
+
+// ============================================================================
+// TLS connection
+// ============================================================================
+
+typedef struct {
+    mbedtls_net_context net;
+    mbedtls_ssl_context ssl;
+    mbedtls_ssl_config conf;
+    mbedtls_entropy_context entropy;
+    mbedtls_ctr_drbg_context ctr_drbg;
+    int is_https;
+} TLSConn;
+
+static int tls_conn_init(TLSConn* c) {
+    memset(c, 0, sizeof(*c));
+    mbedtls_net_init(&c->net);
+    mbedtls_ssl_init(&c->ssl);
+    mbedtls_ssl_config_init(&c->conf);
+    mbedtls_entropy_init(&c->entropy);
+    mbedtls_ctr_drbg_init(&c->ctr_drbg);
+
+    int ret = mbedtls_ctr_drbg_seed(&c->ctr_drbg, cosmo_entropy_func,
+                                     NULL, NULL, 0);
+    if (ret != 0) return ret;
+
+    ret = mbedtls_ssl_config_defaults(&c->conf, MBEDTLS_SSL_IS_CLIENT,
+            MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
+    if (ret != 0) return ret;
+
+    mbedtls_ssl_conf_authmode(&c->conf, MBEDTLS_SSL_VERIFY_NONE);
+    mbedtls_ssl_conf_rng(&c->conf, mbedtls_ctr_drbg_random, &c->ctr_drbg);
+
+    mbedtls_ssl_conf_max_tls_version(&c->conf, MBEDTLS_SSL_VERSION_TLS1_2);
+    mbedtls_ssl_conf_min_tls_version(&c->conf, MBEDTLS_SSL_VERSION_TLS1_2);
+
+    ret = mbedtls_ssl_setup(&c->ssl, &c->conf);
+    return ret;
+}
+
+static void tls_conn_free(TLSConn* c) {
+    mbedtls_ssl_close_notify(&c->ssl);
+    mbedtls_net_free(&c->net);
+    mbedtls_ssl_free(&c->ssl);
+    mbedtls_ssl_config_free(&c->conf);
+    mbedtls_ctr_drbg_free(&c->ctr_drbg);
+    mbedtls_entropy_free(&c->entropy);
+}
+
+// ============================================================================
+// Proxy support
+// ============================================================================
+
+typedef struct {
+    char host[256];
+    char port[8];
+    char userinfo[4096];
+    int valid;
+} ProxyInfo;
+
+static void parse_proxy_env(ProxyInfo* p) {
+    memset(p, 0, sizeof(*p));
+    const char* proxy = getenv("HTTPS_PROXY");
+    if (!proxy) proxy = getenv("https_proxy");
+    if (!proxy) proxy = getenv("HTTP_PROXY");
+    if (!proxy) proxy = getenv("http_proxy");
+    if (!proxy) return;
+
+    const char* s = proxy;
+    if (strncmp(s, "http://", 7) == 0) s += 7;
+    else if (strncmp(s, "https://", 8) == 0) s += 8;
+
+    const char* at = strchr(s, '@');
+    const char* host_start = s;
+    if (at) {
+        size_t ui_len = at - s;
+        if (ui_len >= sizeof(p->userinfo)) ui_len = sizeof(p->userinfo) - 1;
+        memcpy(p->userinfo, s, ui_len);
+        p->userinfo[ui_len] = 0;
+        host_start = at + 1;
+    }
+
+    const char* colon = strrchr(host_start, ':');
+    if (colon) {
+        size_t hlen = colon - host_start;
+        if (hlen >= sizeof(p->host)) hlen = sizeof(p->host) - 1;
+        memcpy(p->host, host_start, hlen);
+        p->host[hlen] = 0;
+        strncpy(p->port, colon + 1, sizeof(p->port) - 1);
+    } else {
+        strncpy(p->host, host_start, sizeof(p->host) - 1);
+        strcpy(p->port, "8080");
+    }
+    p->valid = p->host[0] != 0;
+}
+
+// Base64 encoder for proxy auth
+static const char b64_table[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static size_t base64_encode(const unsigned char* src, size_t len,
+                            char* dst, size_t dst_sz) {
+    size_t i = 0, j = 0;
+    while (i < len && j + 4 < dst_sz) {
+        uint32_t a = src[i++];
+        uint32_t b = (i < len) ? src[i++] : 0;
+        uint32_t c = (i < len) ? src[i++] : 0;
+        uint32_t triple = (a << 16) | (b << 8) | c;
+        dst[j++] = b64_table[(triple >> 18) & 0x3F];
+        dst[j++] = b64_table[(triple >> 12) & 0x3F];
+        dst[j++] = (i > len + 1) ? '=' : b64_table[(triple >> 6) & 0x3F];
+        dst[j++] = (i > len) ? '=' : b64_table[triple & 0x3F];
+    }
+    dst[j] = 0;
+    return j;
+}
+
+// ============================================================================
+// TLS connect (with proxy support)
+// ============================================================================
+
+static int tls_conn_connect(TLSConn* c, const ParsedURL* url) {
+    c->is_https = url->is_https;
+
+    ProxyInfo proxy;
+    parse_proxy_env(&proxy);
+
+    if (proxy.valid && url->is_https) {
+        int ret = mbedtls_net_connect(&c->net, proxy.host, proxy.port,
+                                       MBEDTLS_NET_PROTO_TCP);
+        if (ret != 0) return ret;
+
+        char connect_req[8192];
+        int n;
+        if (proxy.userinfo[0]) {
+            char b64[6144];
+            base64_encode((const unsigned char*)proxy.userinfo,
+                         strlen(proxy.userinfo), b64, sizeof(b64));
+            n = snprintf(connect_req, sizeof(connect_req),
+                "CONNECT %s:%s HTTP/1.1\r\n"
+                "Host: %s:%s\r\n"
+                "Proxy-Authorization: Basic %s\r\n"
+                "\r\n", url->host, url->port, url->host, url->port, b64);
+        } else {
+            n = snprintf(connect_req, sizeof(connect_req),
+                "CONNECT %s:%s HTTP/1.1\r\n"
+                "Host: %s:%s\r\n"
+                "\r\n", url->host, url->port, url->host, url->port);
+        }
+        ret = mbedtls_net_send(&c->net,
+                               (const unsigned char*)connect_req, n);
+        if (ret < 0) return ret;
+
+        char resp[4096];
+        size_t resp_len = 0;
+        while (resp_len < sizeof(resp) - 1) {
+            ret = mbedtls_net_recv(&c->net,
+                                   (unsigned char*)&resp[resp_len], 1);
+            if (ret <= 0) break;
+            resp_len++;
+            if (resp_len >= 4 &&
+                resp[resp_len-4] == '\r' && resp[resp_len-3] == '\n' &&
+                resp[resp_len-2] == '\r' && resp[resp_len-1] == '\n')
+                break;
+        }
+        resp[resp_len] = 0;
+
+        if (!strstr(resp, "200")) {
+            fprintf(stderr, "Error: Proxy CONNECT failed: %s\n", resp);
+            return -1;
+        }
+
+        mbedtls_ssl_set_hostname(&c->ssl, url->host);
+        mbedtls_ssl_set_bio(&c->ssl, &c->net, mbedtls_net_send,
+                            mbedtls_net_recv, NULL);
+
+        while ((ret = mbedtls_ssl_handshake(&c->ssl)) != 0) {
+            if (ret != MBEDTLS_ERR_SSL_WANT_READ &&
+                ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
+                return ret;
+            }
+        }
+        return 0;
+    }
+
+    int ret = mbedtls_net_connect(&c->net, url->host, url->port,
+                                   MBEDTLS_NET_PROTO_TCP);
+    if (ret != 0) return ret;
+
+    if (url->is_https) {
+        mbedtls_ssl_set_hostname(&c->ssl, url->host);
+        mbedtls_ssl_set_bio(&c->ssl, &c->net, mbedtls_net_send,
+                            mbedtls_net_recv, NULL);
+        ret = mbedtls_ssl_handshake(&c->ssl);
+        if (ret != 0) return ret;
+    }
+    return 0;
+}
+
+// ============================================================================
+// TLS I/O
+// ============================================================================
+
+static int tls_write(TLSConn* c, const unsigned char* data, size_t len) {
+    size_t written = 0;
+    while (written < len) {
+        int ret;
+        if (c->is_https)
+            ret = mbedtls_ssl_write(&c->ssl, data + written, len - written);
+        else
+            ret = mbedtls_net_send(&c->net, data + written, len - written);
+        if (ret < 0) return ret;
+        written += ret;
+    }
+    return 0;
+}
+
+static int tls_read(TLSConn* c, unsigned char* buf, size_t len) {
+    if (c->is_https)
+        return mbedtls_ssl_read(&c->ssl, buf, len);
+    else
+        return mbedtls_net_recv(&c->net, buf, len);
+}
+
+static int tls_read_line(TLSConn* c, char* buf, size_t max) {
+    size_t i = 0;
+    while (i < max - 1) {
+        int ret = tls_read(c, (unsigned char*)&buf[i], 1);
+        if (ret <= 0) break;
+        if (buf[i] == '\n') { i++; break; }
+        i++;
+    }
+    buf[i] = 0;
+    return (int)i;
+}
+
+// ============================================================================
+// HTTP response parsing
+// ============================================================================
+
+typedef struct {
+    int status_code;
+    size_t content_length;
+    char location[MAX_URL];
+    int chunked;
+} HTTPResponseInfo;
+
+static void parse_http_headers(TLSConn* c, HTTPResponseInfo* info) {
+    memset(info, 0, sizeof(*info));
+    info->content_length = (size_t)-1;
+
+    char line[4096];
+    tls_read_line(c, line, sizeof(line));
+    char* sp = strchr(line, ' ');
+    if (sp) info->status_code = atoi(sp + 1);
+
+    while (tls_read_line(c, line, sizeof(line)) > 0) {
+        if (line[0] == '\r' || line[0] == '\n') break;
+        char* cr = strchr(line, '\r');
+        if (cr) *cr = 0;
+        char* nl = strchr(line, '\n');
+        if (nl) *nl = 0;
+
+        if (strncasecmp(line, "Content-Length:", 15) == 0) {
+            info->content_length = (size_t)atoll(line + 15);
+        } else if (strncasecmp(line, "Location:", 9) == 0) {
+            const char* loc = line + 9;
+            while (*loc == ' ') loc++;
+            strncpy(info->location, loc, sizeof(info->location) - 1);
+        } else if (strncasecmp(line, "Transfer-Encoding:", 18) == 0) {
+            if (strstr(line + 18, "chunked")) info->chunked = 1;
+        }
+    }
+}
+
+// Read full HTTP body into malloc'd buffer
+static char* read_http_body(TLSConn* c, HTTPResponseInfo* info, size_t* out_len) {
+    char* buf = NULL;
+    size_t total = 0, cap = 0;
+
+    if (info->chunked) {
+        char line[64];
+        while (1) {
+            tls_read_line(c, line, sizeof(line));
+            size_t chunk_size = (size_t)strtoul(line, NULL, 16);
+            if (chunk_size == 0) break;
+
+            if (total + chunk_size + 1 >= cap) {
+                cap = (total + chunk_size) * 2 + 1;
+                buf = (char*)realloc(buf, cap);
+            }
+
+            size_t chunk_read = 0;
+            while (chunk_read < chunk_size) {
+                int ret = tls_read(c, (unsigned char*)(buf + total),
+                                   chunk_size - chunk_read);
+                if (ret <= 0) goto done;
+                total += ret;
+                chunk_read += ret;
+            }
+            tls_read_line(c, line, sizeof(line));
+        }
+    } else if (info->content_length != (size_t)-1) {
+        cap = info->content_length + 1;
+        buf = (char*)malloc(cap);
+        while (total < info->content_length) {
+            int ret = tls_read(c, (unsigned char*)(buf + total),
+                               info->content_length - total);
+            if (ret <= 0) break;
+            total += ret;
+        }
+    } else {
+        cap = 65536;
+        buf = (char*)malloc(cap);
+        while (1) {
+            if (total + 8192 >= cap) {
+                cap *= 2;
+                buf = (char*)realloc(buf, cap);
+            }
+            int ret = tls_read(c, (unsigned char*)(buf + total), 8192);
+            if (ret <= 0) break;
+            total += ret;
+        }
+    }
+
+done:
+    if (buf) buf[total] = 0;
+    if (out_len) *out_len = total;
+    return buf;
+}
+
+static int send_http_get(TLSConn* c, const ParsedURL* url) {
+    char request[MAX_URL + 512];
+    snprintf(request, sizeof(request),
+        "GET %s HTTP/1.1\r\n"
+        "Host: %s\r\n"
+        "Connection: close\r\n"
+        "User-Agent: runtimedl/1.0\r\n"
+        "Accept: */*\r\n"
+        "\r\n", url->path, url->host);
+    return tls_write(c, (const unsigned char*)request, strlen(request));
+}
+
+// ============================================================================
+// High-level: fetch_url and download_file (with redirect support)
+// ============================================================================
+
+static char* fetch_url(const char* url, size_t* out_len) {
+    char current_url[MAX_URL];
+    strncpy(current_url, url, sizeof(current_url) - 1);
+    current_url[sizeof(current_url) - 1] = 0;
+
+    for (int redir = 0; redir < 10; redir++) {
+        ParsedURL parsed;
+        if (parse_url(current_url, &parsed) != 0) {
+            fprintf(stderr, "Error: Invalid URL: %s\n", current_url);
+            return NULL;
+        }
+
+        TLSConn conn;
+        if (tls_conn_init(&conn) != 0) {
+            fprintf(stderr, "Error: TLS init failed\n");
+            return NULL;
+        }
+
+        if (tls_conn_connect(&conn, &parsed) != 0) {
+            fprintf(stderr, "Error: Connection failed to %s:%s\n",
+                    parsed.host, parsed.port);
+            tls_conn_free(&conn);
+            return NULL;
+        }
+
+        if (send_http_get(&conn, &parsed) != 0) {
+            tls_conn_free(&conn);
+            return NULL;
+        }
+
+        HTTPResponseInfo info;
+        parse_http_headers(&conn, &info);
+
+        if (info.status_code >= 300 && info.status_code < 400 &&
+            info.location[0]) {
+            if (info.location[0] == '/') {
+                snprintf(current_url, sizeof(current_url), "%s://%s%s",
+                    parsed.is_https ? "https" : "http",
+                    parsed.host, info.location);
+            } else {
+                strncpy(current_url, info.location, sizeof(current_url) - 1);
+                current_url[sizeof(current_url) - 1] = 0;
+            }
+            tls_conn_free(&conn);
+            continue;
+        }
+
+        if (info.status_code != 200) {
+            fprintf(stderr, "Error: HTTP %d for %s\n",
+                    info.status_code, current_url);
+            tls_conn_free(&conn);
+            return NULL;
+        }
+
+        char* body = read_http_body(&conn, &info, out_len);
+        tls_conn_free(&conn);
+        return body;
+    }
+
+    fprintf(stderr, "Error: Too many redirects\n");
+    return NULL;
+}
+
+static int download_file(const char* url, const char* dest) {
+    char current_url[MAX_URL];
+    strncpy(current_url, url, sizeof(current_url) - 1);
+    current_url[sizeof(current_url) - 1] = 0;
+
+    printf("Downloading to %s\n", dest);
+
+    for (int redir = 0; redir < 10; redir++) {
+        ParsedURL parsed;
+        if (parse_url(current_url, &parsed) != 0) {
+            fprintf(stderr, "Error: Invalid URL: %s\n", current_url);
+            return -1;
+        }
+
+        TLSConn conn;
+        if (tls_conn_init(&conn) != 0) return -1;
+        if (tls_conn_connect(&conn, &parsed) != 0) {
+            tls_conn_free(&conn);
+            return -1;
+        }
+        if (send_http_get(&conn, &parsed) != 0) {
+            tls_conn_free(&conn);
+            return -1;
+        }
+
+        HTTPResponseInfo info;
+        parse_http_headers(&conn, &info);
+
+        if (info.status_code >= 300 && info.status_code < 400 &&
+            info.location[0]) {
+            if (info.location[0] == '/') {
+                snprintf(current_url, sizeof(current_url), "%s://%s%s",
+                    parsed.is_https ? "https" : "http",
+                    parsed.host, info.location);
+            } else {
+                strncpy(current_url, info.location, sizeof(current_url) - 1);
+                current_url[sizeof(current_url) - 1] = 0;
+            }
+            tls_conn_free(&conn);
+            continue;
+        }
+
+        if (info.status_code != 200) {
+            fprintf(stderr, "Error: HTTP %d\n", info.status_code);
+            tls_conn_free(&conn);
+            return -1;
+        }
+
+        FILE* out = fopen(dest, "wb");
+        if (!out) {
+            fprintf(stderr, "Error: Cannot create %s: %s\n",
+                    dest, strerror(errno));
+            tls_conn_free(&conn);
+            return -1;
+        }
+
+        size_t total = 0;
+        unsigned char buf[16384];
+        while (1) {
+            int ret = tls_read(&conn, buf, sizeof(buf));
+            if (ret <= 0) break;
+            fwrite(buf, 1, ret, out);
+            total += ret;
+
+            if (info.content_length != (size_t)-1 && info.content_length > 0) {
+                int pct = (int)(total * 100 / info.content_length);
+                int bar = pct / 2;
+                printf("\r  [");
+                for (int i = 0; i < 50; i++)
+                    putchar(i < bar ? '=' : (i == bar ? '>' : ' '));
+                printf("] %d%%", pct);
+                fflush(stdout);
+            } else {
+                printf("\r  %zu bytes", total);
+                fflush(stdout);
+            }
+        }
+        printf("\n");
+
+        fclose(out);
+        tls_conn_free(&conn);
+        return 0;
+    }
+
+    fprintf(stderr, "Error: Too many redirects\n");
+    return -1;
+}
+
+// ============================================================================
+// SHA-512
+// ============================================================================
+
+static void compute_file_sha512(const char* path, char out_hex[129]) {
+    FILE *f = fopen(path, "rb");
+    if (!f) { out_hex[0] = 0; return; }
+
+    mbedtls_sha512_context ctx;
+    mbedtls_sha512_init(&ctx);
+    mbedtls_sha512_starts(&ctx, 0);
+
+    unsigned char buf[8192];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+        mbedtls_sha512_update(&ctx, buf, n);
+    fclose(f);
+
+    unsigned char hash[64];
+    mbedtls_sha512_finish(&ctx, hash);
+    mbedtls_sha512_free(&ctx);
+
+    for (int i = 0; i < 64; i++)
+        sprintf(out_hex + i*2, "%02x", hash[i]);
+    out_hex[128] = 0;
+}
+} // end raw block

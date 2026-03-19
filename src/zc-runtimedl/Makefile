@@ -5,14 +5,17 @@ CFLAGS = -Os -s
 
 # Pinned dependency versions
 MBEDTLS_VERSION = 3.6.5
-CJSON_VERSION = 1.7.18
+ZENC_STD_URL = https://github.com/zenc-lang/zenc/archive/refs/heads/main.tar.gz
 
 # Paths
 MBEDTLS_DIR = extern/mbedtls
-CJSON_DIR = extern/cJSON
+ZENC_STD_DIR = extern/zenc-std
 
 # Wrapper script that captures the transpiled C file
 CAPTURE_CC = $(realpath .)/capture-cc.sh
+
+# Source modules (zc.com follows imports from entry point)
+ZC_SOURCES = runtimedl.zc runtimedb.zc semver.zc platform.zc http.zc archive.zc
 
 all: out/runtimedl.com
 
@@ -24,15 +27,16 @@ $(MBEDTLS_DIR)/include/mbedtls/ssl.h:
 	@curl -sL https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$(MBEDTLS_VERSION)/mbedtls-$(MBEDTLS_VERSION).tar.bz2 | tar xj -C extern
 	@mv extern/mbedtls-$(MBEDTLS_VERSION) $(MBEDTLS_DIR)
 
-$(CJSON_DIR)/cJSON.c:
-	@echo "Downloading cJSON $(CJSON_VERSION)..."
+$(ZENC_STD_DIR)/json.zc:
+	@echo "Downloading Zen-C std library..."
 	@mkdir -p extern
-	@curl -sL https://github.com/DaveGamble/cJSON/archive/refs/tags/v$(CJSON_VERSION).tar.gz | tar xz -C extern
-	@mv extern/cJSON-$(CJSON_VERSION) $(CJSON_DIR)
+	@curl -sL $(ZENC_STD_URL) | tar xz -C extern
+	@mv extern/zenc-main/std $(ZENC_STD_DIR)
+	@cp extern/zenc-main/std.zc $(ZENC_STD_DIR)/
+	@rm -rf extern/zenc-main
 
 # ---- Build mbedTLS ----
 
-# Stamp file to track that mbedTLS objects are built
 $(MBEDTLS_DIR)/library/.built: $(MBEDTLS_DIR)/include/mbedtls/ssl.h
 	@echo "Compiling mbedTLS..."
 	@for f in $(MBEDTLS_DIR)/library/*.c; do \
@@ -42,14 +46,32 @@ $(MBEDTLS_DIR)/library/.built: $(MBEDTLS_DIR)/include/mbedtls/ssl.h
 
 # ---- Main build ----
 
-out/runtimedl.com: runtimedl.zc capture-cc.sh $(MBEDTLS_DIR)/library/.built $(CJSON_DIR)/cJSON.c
+deps: $(MBEDTLS_DIR)/library/.built $(ZENC_STD_DIR)/json.zc
+
+out/runtimedl.com: $(ZC_SOURCES) capture-cc.sh | deps
 	@mkdir -p out
 	@echo "Step 1: Transpiling Zen-C to C..."
-	$(ZC) build --cc $(CAPTURE_CC) -o $@ $< 2>/dev/null || true
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ runtimedl.zc 2>/dev/null || true
 	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
 	@echo "Step 2: Compiling with cosmocc..."
-	$(CC) $(CFLAGS) -I$(MBEDTLS_DIR)/include -I$(CJSON_DIR) -o $@ out/transpiled.c $(CJSON_DIR)/cJSON.c $$(find $(MBEDTLS_DIR)/library -maxdepth 1 -name '*.o')
+	$(CC) $(CFLAGS) -I$(MBEDTLS_DIR)/include -o $@ out/transpiled.c \
+		$$(find $(MBEDTLS_DIR)/library -maxdepth 1 -name '*.o')
 	@echo "Built: $@ ($$(du -h $@ | cut -f1))"
+
+# ---- Tests ----
+
+out/test_semver.com: test_semver.zc semver.zc capture-cc.sh | deps
+	@mkdir -p out
+	@echo "Building semver tests..."
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_semver.zc 2>/dev/null || true
+	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	$(CC) $(CFLAGS) -o $@ out/transpiled.c
+	@echo "Built: $@"
+
+test: out/test_semver.com
+	@echo "Running tests..."
+	./out/test_semver.com
+	@echo "All tests passed."
 
 capture-cc.sh:
 	@printf '#!/bin/sh\nfor f in "$$@"; do case "$$f" in *.c) cp "$$f" out/transpiled.c 2>/dev/null ;; esac; done\nexec %s/usr/bin/cosmocc "$$@"\n' "$(CURDIR)" > $@
@@ -61,4 +83,4 @@ clean:
 distclean: clean
 	rm -rf extern
 
-.PHONY: all clean distclean
+.PHONY: all clean distclean deps test

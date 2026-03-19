@@ -1,0 +1,80 @@
+// semver.zc — Semantic version parsing and comparison
+
+raw {
+#include <stdio.h>
+#include <string.h>
+
+typedef struct {
+    int major, minor, patch;
+    char prerelease[128];
+} SemVer;
+
+static int _sv_parse(const char *s, SemVer *v) {
+    v->major = v->minor = v->patch = 0;
+    v->prerelease[0] = 0;
+    if (!s) return -1;
+    int n = sscanf(s, "%d.%d.%d", &v->major, &v->minor, &v->patch);
+    if (n < 2) return -1;
+    const char *dash = strchr(s, '-');
+    if (dash) {
+        strncpy(v->prerelease, dash + 1, sizeof(v->prerelease) - 1);
+        v->prerelease[sizeof(v->prerelease) - 1] = 0;
+    }
+    return 0;
+}
+}
+
+fn semver_cmp(a: SemVer*, b: SemVer*) -> int {
+    if (a.major != b.major) { return a.major - b.major }
+    if (a.minor != b.minor) { return a.minor - b.minor }
+    if (a.patch != b.patch) { return a.patch - b.patch }
+
+    let a_pre: int = 0
+    let b_pre: int = 0
+    raw {
+        a_pre = (a->prerelease[0] != 0) ? 1 : 0;
+        b_pre = (b->prerelease[0] != 0) ? 1 : 0;
+    }
+
+    if (a_pre != b_pre) { return b_pre - a_pre }
+    if (a_pre == 1 && b_pre == 1) {
+        raw { return strcmp(a->prerelease, b->prerelease); }
+    }
+
+    return 0
+}
+
+fn semver_satisfies(ver: SemVer*, range: char*, include_pre: int) -> int {
+    raw {
+        if (!include_pre && ver->prerelease[0]) return 0;
+
+        const char *p = range;
+        while (*p == ' ') p++;
+
+        char op[3] = {0};
+        if (p[0] == '>' && p[1] == '=') { op[0] = '>'; op[1] = '='; p += 2; }
+        else if (p[0] == '<' && p[1] == '=') { op[0] = '<'; op[1] = '='; p += 2; }
+        else if (p[0] == '>') { op[0] = '>'; p++; }
+        else if (p[0] == '<') { op[0] = '<'; p++; }
+        else if (p[0] == '=') { op[0] = '='; p++; }
+        else if (p[0] == '^') { op[0] = '^'; p++; }
+        else if (p[0] == '~') { op[0] = '~'; p++; }
+        else { op[0] = '='; }
+        while (*p == ' ') p++;
+
+        SemVer rv = {0};
+        if (_sv_parse(p, &rv) != 0) return 0;
+
+        int c = semver_cmp(ver, &rv);
+
+        if (op[0] == '>' && op[1] == '=') return c >= 0;
+        if (op[0] == '>') return c > 0;
+        if (op[0] == '<' && op[1] == '=') return c <= 0;
+        if (op[0] == '<') return c < 0;
+        if (op[0] == '=') return c == 0;
+        if (op[0] == '^') return c >= 0 && ver->major == rv.major;
+        if (op[0] == '~') return c >= 0 && ver->major == rv.major &&
+                                            ver->minor == rv.minor;
+    }
+    return 0
+}
