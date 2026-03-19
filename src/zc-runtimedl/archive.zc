@@ -12,26 +12,57 @@ raw {
 #define MAX_PATH_LEN 4096
 #endif
 
-static int mkdirp(const char* path) {
-    char tmp[MAX_PATH_LEN];
-    snprintf(tmp, sizeof(tmp), "%s", path);
-    for (char *p = tmp + 1; *p; p++) {
-        if (*p == '/') {
-            *p = 0;
-            mkdir(tmp, 0755);
-            *p = '/';
+#define ZIP_LOCAL_HEADER_SIG 0x04034b50
+
+// Forward declarations for Zen-C helper functions
+size_t parse_octal(char* s, int32_t n);
+uint16_t read_u16_le(uint8_t* p);
+uint32_t read_u32_le(uint8_t* p);
+int32_t mkdirp(char* path);
+}
+
+fn parse_octal(s: char*, n: int) -> usize {
+    let val: usize = 0
+    for (let i: int = 0; i < n; i = i + 1) {
+        let c: int = 0
+        raw { c = (unsigned char)s[i]; }
+        if (c >= 48 && c <= 55) {
+            val = val * 8 + (c - 48)
+        } else {
+            break
         }
     }
-    return mkdir(tmp, 0755);
+    return val
 }
 
-static size_t parse_octal(const char *s, int n) {
-    size_t val = 0;
-    for (int i = 0; i < n && s[i] >= '0' && s[i] <= '7'; i++)
-        val = val * 8 + (s[i] - '0');
-    return val;
+fn read_u16_le(p: u8*) -> u16 {
+    raw {
+        return (uint16_t)(p[0] | (p[1] << 8));
+    }
 }
 
+fn read_u32_le(p: u8*) -> u32 {
+    raw {
+        return (uint32_t)(p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24));
+    }
+}
+
+fn mkdirp(path: char*) -> int {
+    raw {
+        char tmp[MAX_PATH_LEN];
+        snprintf(tmp, sizeof(tmp), "%s", path);
+        for (char *p = tmp + 1; *p; p++) {
+            if (*p == '/') {
+                *p = 0;
+                mkdir(tmp, 0755);
+                *p = '/';
+            }
+        }
+        return mkdir(tmp, 0755);
+    }
+}
+
+raw {
 static int extract_tar_gz(const char* archive, const char* dest) {
     gzFile gz = gzopen(archive, "rb");
     if (!gz) { fprintf(stderr, "Error: cannot open %s\n", archive); return -1; }
@@ -104,17 +135,6 @@ static int extract_tar_gz(const char* archive, const char* dest) {
 // ============================================================================
 // Zip extraction via zlib inflate
 // ============================================================================
-
-static uint16_t read_u16_le(const unsigned char* p) {
-    return (uint16_t)(p[0] | (p[1] << 8));
-}
-
-static uint32_t read_u32_le(const unsigned char* p) {
-    return (uint32_t)(p[0] | (p[1] << 8) | (p[2] << 16) |
-                      ((uint32_t)p[3] << 24));
-}
-
-#define ZIP_LOCAL_HEADER_SIG 0x04034b50
 
 static int extract_zip(const char* archive, const char* dest) {
     FILE* f = fopen(archive, "rb");

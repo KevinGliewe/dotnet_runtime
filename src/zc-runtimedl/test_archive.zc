@@ -1,0 +1,71 @@
+// test_archive.zc — Unit tests for archive helper functions
+
+import "./archive.zc"
+
+raw {
+#include <sys/stat.h>
+}
+
+test "parse_octal basic" {
+    let result = parse_octal("0755", 4)
+    assert(result == 493, "0755 octal = 493 decimal")
+}
+
+test "parse_octal zero" {
+    let result = parse_octal("0000", 4)
+    assert(result == 0, "0000 octal = 0")
+}
+
+test "parse_octal with trailing space" {
+    let result = parse_octal("100644 ", 7)
+    assert(result == 33188, "100644 octal = 33188 decimal")
+}
+
+test "parse_octal partial" {
+    let result = parse_octal("12", 2)
+    assert(result == 10, "12 octal = 10 decimal")
+}
+
+test "read_u16_le basic" {
+    raw { unsigned char data[] = {0x34, 0x12}; }
+    let result = read_u16_le(data)
+    assert(result == 0x1234, "should read 0x1234 little-endian")
+}
+
+test "read_u16_le zero" {
+    raw { unsigned char data[] = {0x00, 0x00}; }
+    let result = read_u16_le(data)
+    assert(result == 0, "should read 0")
+}
+
+test "read_u32_le basic" {
+    raw { unsigned char data[] = {0x78, 0x56, 0x34, 0x12}; }
+    let result = read_u32_le(data)
+    assert(result == 0x12345678, "should read 0x12345678 little-endian")
+}
+
+test "read_u32_le zip signature" {
+    raw { unsigned char data[] = {0x50, 0x4b, 0x03, 0x04}; }
+    let result = read_u32_le(data)
+    assert(result == 0x04034b50, "should read ZIP local header signature")
+}
+
+test "mkdirp creates directory" {
+    raw {
+        // Clean up first
+        rmdir("/tmp/test_mkdirp_zc/a/b/c");
+        rmdir("/tmp/test_mkdirp_zc/a/b");
+        rmdir("/tmp/test_mkdirp_zc/a");
+        rmdir("/tmp/test_mkdirp_zc");
+    }
+    mkdirp("/tmp/test_mkdirp_zc/a/b/c")
+    raw {
+        struct stat st;
+        assert(stat("/tmp/test_mkdirp_zc/a/b/c", &st) == 0, "directory should exist");
+        // Clean up
+        rmdir("/tmp/test_mkdirp_zc/a/b/c");
+        rmdir("/tmp/test_mkdirp_zc/a/b");
+        rmdir("/tmp/test_mkdirp_zc/a");
+        rmdir("/tmp/test_mkdirp_zc");
+    }
+}
