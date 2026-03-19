@@ -14,6 +14,9 @@ ZENC_STD_DIR = extern/zenc-std
 # Wrapper script that captures the transpiled C file
 CAPTURE_CC = $(realpath .)/capture-cc.sh
 
+# Post-processing script for transpiled C (works around zc.com duplicate definitions bug)
+DEDUP = ./dedup-transpiled.sh
+
 # Source modules (zc.com follows imports from entry point)
 ZC_SOURCES = runtimedl.zc runtimedl_helpers.zc runtimedb.zc semver.zc platform.zc http.zc archive.zc
 
@@ -51,8 +54,9 @@ deps: $(MBEDTLS_DIR)/library/.built $(ZENC_STD_DIR)/json.zc
 out/runtimedl.com: $(ZC_SOURCES) capture-cc.sh | deps
 	@mkdir -p out
 	@echo "Step 1: Transpiling Zen-C to C..."
-	$(ZC) build --cc $(CAPTURE_CC) -o $@ runtimedl.zc 2>/dev/null || true
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ runtimedl.zc || true
 	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	$(DEDUP) out/transpiled.c
 	@echo "Step 2: Compiling with cosmocc..."
 	$(CC) $(CFLAGS) -I$(MBEDTLS_DIR)/include -o $@ out/transpiled.c \
 		$$(find $(MBEDTLS_DIR)/library -maxdepth 1 -name '*.o')
@@ -64,8 +68,9 @@ out/test_semver.com: test_semver.zc semver.zc capture-cc.sh | deps
 	@mkdir -p out
 	@echo "Building semver tests..."
 	@rm -f out/transpiled.c
-	$(ZC) run --cc $(CAPTURE_CC) -o $@ test_semver.zc || true
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_semver.zc || true
 	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	$(DEDUP) out/transpiled.c
 	$(CC) $(CFLAGS) -o $@ out/transpiled.c
 	@echo "Built: $@"
 
@@ -73,8 +78,9 @@ out/test_platform.com: test_platform.zc platform.zc capture-cc.sh | deps
 	@mkdir -p out
 	@echo "Building platform tests..."
 	@rm -f out/transpiled.c
-	$(ZC) run --cc $(CAPTURE_CC) -o $@ test_platform.zc || true
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_platform.zc || true
 	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	$(DEDUP) out/transpiled.c
 	$(CC) $(CFLAGS) -o $@ out/transpiled.c
 	@echo "Built: $@"
 
@@ -82,8 +88,9 @@ out/test_archive.com: test_archive.zc archive.zc capture-cc.sh | deps
 	@mkdir -p out
 	@echo "Building archive tests..."
 	@rm -f out/transpiled.c
-	$(ZC) run --cc $(CAPTURE_CC) -o $@ test_archive.zc || true
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_archive.zc || true
 	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	$(DEDUP) out/transpiled.c
 	$(CC) $(CFLAGS) -o $@ out/transpiled.c
 	@echo "Built: $@"
 
@@ -91,8 +98,9 @@ out/test_http.com: test_http.zc http.zc capture-cc.sh | deps
 	@mkdir -p out
 	@echo "Building http tests..."
 	@rm -f out/transpiled.c
-	$(ZC) run --cc $(CAPTURE_CC) -o $@ test_http.zc || true
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_http.zc || true
 	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	$(DEDUP) out/transpiled.c
 	$(CC) $(CFLAGS) -I$(MBEDTLS_DIR)/include -o $@ out/transpiled.c \
 		$$(find $(MBEDTLS_DIR)/library -maxdepth 1 -name '*.o')
 	@echo "Built: $@"
@@ -101,8 +109,9 @@ out/test_runtimedl.com: test_runtimedl.zc runtimedl_helpers.zc capture-cc.sh | d
 	@mkdir -p out
 	@echo "Building runtimedl tests..."
 	@rm -f out/transpiled.c
-	$(ZC) run --cc $(CAPTURE_CC) -o $@ test_runtimedl.zc || true
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_runtimedl.zc || true
 	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	$(DEDUP) out/transpiled.c
 	$(CC) $(CFLAGS) -o $@ out/transpiled.c
 	@echo "Built: $@"
 
