@@ -125,7 +125,7 @@ test: out/test_semver.com out/test_platform.com out/test_archive.com out/test_ht
 	@echo "All tests passed."
 
 capture-cc.sh:
-	@printf '#!/bin/sh\nfor f in "$$@"; do case "$$f" in *.c) cp "$$f" out/transpiled.c 2>/dev/null ;; esac; done\nexit 0\n' > $@
+	@printf '#!/bin/sh\n# Capture transpiled C and create dummy ELF output so zc.com sees success\nOUTDIR="%s/out"\nOUTFILE=""\nNEXT_IS_OUT=""\nfor f in "$$@"; do\n  if [ "$$NEXT_IS_OUT" = "1" ]; then OUTFILE="$$f"; NEXT_IS_OUT=""; continue; fi\n  case "$$f" in\n    -o) NEXT_IS_OUT="1" ;;\n    *.c) cp "$$f" "$$OUTDIR/transpiled.c" ;;\n  esac\ndone\nif [ -n "$$OUTFILE" ]; then printf "\\177ELF" > "$$OUTFILE" && chmod +x "$$OUTFILE"; fi\nexit 0\n' "$(CURDIR)" > $@
 	@chmod +x $@
 
 clean:
