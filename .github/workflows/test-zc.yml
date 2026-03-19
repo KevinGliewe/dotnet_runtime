@@ -2,11 +2,16 @@ name: Test Zen-C
 
 on:
   push:
+    tags:
+      - 'v*'
     paths:
       - 'src/zc-runtimedl/**'
   pull_request:
     paths:
       - 'src/zc-runtimedl/**'
+
+permissions:
+  contents: write
 
 jobs:
   test:
@@ -30,7 +35,8 @@ jobs:
 
       - name: Register APE loader
         run: |
-          sudo cp src/zc-runtimedl/usr/bin/ape-x86_64.elf /usr/bin/ape || true
+          sudo cp src/zc-runtimedl/usr/bin/ape-x86_64.elf /usr/bin/ape
+          sudo chmod +x /usr/bin/ape
           sudo sh -c "echo ':APE:M::MZqFpD::/usr/bin/ape:' >/proc/sys/fs/binfmt_misc/register" || true
 
       - name: Run tests
@@ -144,3 +150,21 @@ jobs:
           "${{ matrix.dotnet_path }}" --list-runtimes
           "${{ matrix.dotnet_path }}" --list-runtimes | grep -q "Microsoft.NETCore.App 8.0"
           echo "All verifications passed for ${{ matrix.platform }}/${{ matrix.arch }}"
+
+  release:
+    needs: [test, integration-test]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: runtimedl-ape
+          path: artifacts/runtimedl-ape
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/**/*
