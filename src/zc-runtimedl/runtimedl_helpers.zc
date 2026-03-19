@@ -43,6 +43,7 @@ fn is_false_str(s: char*) -> int {
 }
 
 fn get_filename_from_url(url: char*) -> char* {
+    raw { static char _fname_buf[2048]; }
     let s = String::new(url)
     // Find last slash
     let last: usize = 0
@@ -62,7 +63,15 @@ fn get_filename_from_url(url: char*) -> char* {
     if (name.is_empty()) {
         return "download"
     }
-    return name.c_str()
+    // Copy to static buffer to avoid use-after-free
+    let _n = name.c_str()
+    let j: usize = 0
+    while (_n[j] != 0 && j < 2047) {
+        _fname_buf[j] = _n[j]
+        j = j + 1
+    }
+    _fname_buf[j] = 0
+    return _fname_buf
 }
 
 fn detect_archive_format(filename: char*) -> int {

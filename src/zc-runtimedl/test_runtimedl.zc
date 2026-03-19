@@ -100,6 +100,15 @@ test "get_filename_from_url deep path" {
     raw { assert(strcmp(result, "dotnet-runtime-8.0.0-linux-x64.tar.gz") == 0, "should extract deep filename"); }
 }
 
+test "get_filename_from_url survives allocations" {
+    let result = get_filename_from_url("https://builds.dotnet.microsoft.com/dotnet/Runtime/8.0.25/dotnet-runtime-8.0.25-linux-x64.tar.gz")
+    // Force allocations to overwrite freed memory
+    let dummy1 = String::new("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+    let dummy2 = String::new("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+    let dummy3 = dummy1.replace("A", "C")
+    raw { assert(strcmp(result, "dotnet-runtime-8.0.25-linux-x64.tar.gz") == 0, "filename should survive after allocations"); }
+}
+
 // ---- detect_archive_format tests ----
 
 test "detect_archive_format tar.gz" {
