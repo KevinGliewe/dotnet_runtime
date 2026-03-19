@@ -59,22 +59,22 @@ jobs:
           - runner: ubuntu-latest
             platform: linux
             arch: x64
-            expected_rid: linux-x64
+            expected_arch: x64
             dotnet_path: ./test-runtime/linux/x64/dotnet
           - runner: macos-13
             platform: macos
             arch: x64
-            expected_rid: osx-x64
+            expected_arch: x64
             dotnet_path: ./test-runtime/macos/x64/dotnet
           - runner: macos-latest
             platform: macos
             arch: arm64
-            expected_rid: osx-arm64
+            expected_arch: arm64
             dotnet_path: ./test-runtime/macos/arm64/dotnet
           - runner: windows-latest
             platform: windows
             arch: x64
-            expected_rid: win-x64
+            expected_arch: x64
             dotnet_path: ./test-runtime/windows/x64/dotnet.exe
 
     runs-on: ${{ matrix.runner }}
@@ -100,7 +100,9 @@ jobs:
 
       - name: Setup APE (macOS)
         if: runner.os == 'macOS'
-        run: chmod +x runtimedl.com
+        run: |
+          xattr -d com.apple.quarantine runtimedl.com 2>/dev/null || true
+          chmod +x runtimedl.com
 
       - name: Download runtime (Unix)
         if: runner.os != 'Windows'
@@ -114,14 +116,9 @@ jobs:
 
       - name: Download runtime (Windows)
         if: runner.os == 'Windows'
-        shell: cmd
+        shell: powershell
         run: |
-          runtimedl.com ^
-            --runtime-type runtime ^
-            --platform ${{ matrix.platform }} ^
-            --architecture ${{ matrix.arch }} ^
-            --version-pattern "^8.0.0" ^
-            --output ./test-runtime
+          & .\runtimedl.com --runtime-type runtime --platform ${{ matrix.platform }} --architecture ${{ matrix.arch }} --version-pattern "^8.0.0" --output ./test-runtime
 
       - name: Verify runtime
         shell: bash
@@ -132,6 +129,16 @@ jobs:
           echo "=== Running dotnet --info ==="
           "${{ matrix.dotnet_path }}" --info
 
-          echo "=== Verifying platform RID ==="
-          "${{ matrix.dotnet_path }}" --info | grep -i "RID:" | tee /dev/stderr | grep -q "${{ matrix.expected_rid }}"
-          echo "Platform verification passed: ${{ matrix.expected_rid }}"
+          echo "=== Verifying architecture ==="
+          ARCH=$("${{ matrix.dotnet_path }}" --info | grep -i "Architecture:" | head -1 | awk '{print $2}')
+          echo "Detected architecture: $ARCH"
+          echo "Expected architecture: ${{ matrix.expected_arch }}"
+          if [ "$(echo "$ARCH" | tr '[:upper:]' '[:lower:]')" != "${{ matrix.expected_arch }}" ]; then
+            echo "ERROR: Architecture mismatch!"
+            exit 1
+          fi
+
+          echo "=== Verifying runtime is installed ==="
+          "${{ matrix.dotnet_path }}" --list-runtimes
+          "${{ matrix.dotnet_path }}" --list-runtimes | grep -q "Microsoft.NETCore.App 8.0"
+          echo "All verifications passed for ${{ matrix.platform }}/${{ matrix.arch }}"
