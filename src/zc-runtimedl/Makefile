@@ -125,7 +125,7 @@ test: out/test_semver.com out/test_platform.com out/test_archive.com out/test_ht
 	@echo "All tests passed."
 
 capture-cc.sh:
-	@printf '#!/bin/sh\n# Capture transpiled C and create dummy ELF output so zc.com sees success\nOUTDIR="%s/out"\nOUTFILE=""\nNEXT_IS_OUT=""\nfor f in "$$@"; do\n  if [ "$$NEXT_IS_OUT" = "1" ]; then OUTFILE="$$f"; NEXT_IS_OUT=""; continue; fi\n  case "$$f" in\n    -o) NEXT_IS_OUT="1" ;;\n    *.c) cp "$$f" "$$OUTDIR/transpiled.c" ;;\n  esac\ndone\nif [ -n "$$OUTFILE" ]; then printf "\\177ELF" > "$$OUTFILE" && chmod +x "$$OUTFILE"; fi\nexit 0\n' "$(CURDIR)" > $@
+	@printf '#!/bin/sh\n# Capture transpiled C and create dummy ELF output so zc.com sees success\nBASEDIR="%s"\nOUTDIR="$$BASEDIR/out"\necho "[capture-cc] CWD: $$(pwd)" >&2\necho "[capture-cc] args: $$@" >&2\nOUTFILE=""\nNEXT_IS_OUT=""\nfor f in "$$@"; do\n  if [ "$$NEXT_IS_OUT" = "1" ]; then OUTFILE="$$f"; NEXT_IS_OUT=""; continue; fi\n  case "$$f" in\n    -o) NEXT_IS_OUT="1" ;;\n    *.c)\n      echo "[capture-cc] copying $$f -> $$OUTDIR/transpiled.c" >&2\n      cp "$$f" "$$OUTDIR/transpiled.c"\n      echo "[capture-cc] cp exit: $$?" >&2\n      ;;\n  esac\ndone\n# Make OUTFILE absolute if relative\ncase "$$OUTFILE" in\n  /*) ;;\n  *) OUTFILE="$$BASEDIR/$$OUTFILE" ;;\nesac\nif [ -n "$$OUTFILE" ]; then\n  mkdir -p "$$(dirname "$$OUTFILE")"\n  printf "\\177ELF" > "$$OUTFILE" && chmod +x "$$OUTFILE"\n  echo "[capture-cc] created output: $$OUTFILE (exists: $$(test -f $$OUTFILE && echo yes || echo no))" >&2\nfi\nexit 0\n' "$(CURDIR)" > $@
 	@chmod +x $@
 
 clean:
