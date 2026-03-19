@@ -1,118 +1,105 @@
-// test_semver.zc — Unit tests for semver module
+// test_semver.zc — Unit tests for semver module using native Zen-C test blocks
 
 import "./semver.zc"
 
-raw {
-    static int _tests_passed = 0;
-    static int _tests_failed = 0;
-
-    static void assert_eq_int(int a, int b, const char* msg) {
-        if (a == b) { _tests_passed++; }
-        else { _tests_failed++; fprintf(stderr, "FAIL: %s (got %d, expected %d)\n", msg, a, b); }
-    }
-
-    static void assert_true(int cond, const char* msg) {
-        if (cond) { _tests_passed++; }
-        else { _tests_failed++; fprintf(stderr, "FAIL: %s\n", msg); }
-    }
-
-    static void assert_str_eq(const char* a, const char* b, const char* msg) {
-        if (strcmp(a, b) == 0) { _tests_passed++; }
-        else { _tests_failed++; fprintf(stderr, "FAIL: %s (got '%s', expected '%s')\n", msg, a, b); }
-    }
+test "parse basic version" {
+    let v = parse_semver("8.0.25")
+    assert(v.major == 8, "major should be 8")
+    assert(v.minor == 0, "minor should be 0")
+    assert(v.patch == 25, "patch should be 25")
+    assert(v.prerelease.is_empty(), "prerelease should be empty")
 }
 
-fn test_parse_basic() {
+test "parse prerelease version" {
+    let v = parse_semver("9.0.0-preview.1")
+    assert(v.major == 9, "major should be 9")
+    assert(v.minor == 0, "minor should be 0")
+    assert(v.patch == 0, "patch should be 0")
+    assert(v.prerelease.eq_str("preview.1"), "prerelease should be preview.1")
+}
+
+test "parse two-part version" {
+    let v = parse_semver("8.0")
+    assert(v.major == 8, "major should be 8")
+    assert(v.minor == 0, "minor should be 0")
+    assert(v.patch == 0, "patch should be 0")
+}
+
+test "compare major difference" {
+    let a = parse_semver("9.0.0")
+    let b = parse_semver("8.99.99")
+    assert(semver_cmp(&a, &b) > 0, "9.0.0 > 8.99.99")
+}
+
+test "compare patch difference" {
+    let a = parse_semver("8.0.25")
+    let b = parse_semver("8.0.24")
+    assert(semver_cmp(&a, &b) > 0, "8.0.25 > 8.0.24")
+}
+
+test "compare equal versions" {
+    let a = parse_semver("8.0.0")
+    let b = parse_semver("8.0.0")
+    assert(semver_cmp(&a, &b) == 0, "8.0.0 == 8.0.0")
+}
+
+test "compare release beats prerelease" {
+    let a = parse_semver("9.0.0")
+    let b = parse_semver("9.0.0-preview.1")
+    assert(semver_cmp(&a, &b) > 0, "9.0.0 > 9.0.0-preview.1")
+}
+
+test "satisfies greater than" {
+    let v = parse_semver("8.0.25")
+    assert(semver_satisfies(&v, ">8.0.0", 0) == 1, "8.0.25 satisfies >8.0.0")
+}
+
+test "satisfies greater than or equal" {
+    let v = parse_semver("8.0.25")
+    assert(semver_satisfies(&v, ">=8.0.25", 0) == 1, "8.0.25 satisfies >=8.0.25")
+}
+
+test "satisfies caret range" {
+    let v = parse_semver("8.0.25")
+    assert(semver_satisfies(&v, "^8.0.0", 0) == 1, "8.0.25 satisfies ^8.0.0")
+}
+
+test "does not satisfy less than" {
+    let v = parse_semver("8.0.25")
+    assert(semver_satisfies(&v, "<8.0.0", 0) == 0, "8.0.25 does NOT satisfy <8.0.0")
+}
+
+test "does not satisfy tilde wrong major" {
+    let v = parse_semver("8.0.25")
+    assert(semver_satisfies(&v, "~9.0.0", 0) == 0, "8.0.25 does NOT satisfy ~9.0.0")
+}
+
+test "satisfies exact match" {
+    let v = parse_semver("8.0.25")
+    assert(semver_satisfies(&v, "=8.0.25", 0) == 1, "8.0.25 satisfies =8.0.25")
+    assert(semver_satisfies(&v, "=8.0.24", 0) == 0, "8.0.25 does NOT satisfy =8.0.24")
+}
+
+test "prerelease excluded by default" {
+    let v = parse_semver("9.0.0-rc.1")
+    assert(semver_satisfies(&v, ">0.0.0", 0) == 0, "9.0.0-rc.1 excluded by default")
+}
+
+test "prerelease included with flag" {
+    let v = parse_semver("9.0.0-rc.1")
+    assert(semver_satisfies(&v, ">0.0.0", 1) == 1, "9.0.0-rc.1 included with flag")
+    assert(semver_satisfies(&v, "^9.0.0-alpha.0", 1) == 1, "9.0.0-rc.1 satisfies ^9.0.0-alpha.0 with flag")
+}
+
+test "backward compat _sv_parse" {
     raw {
         SemVer v;
-        assert_eq_int(_sv_parse("8.0.25", &v), 0, "parse 8.0.25 returns 0");
-        assert_eq_int(v.major, 8, "parse 8.0.25 major");
-        assert_eq_int(v.minor, 0, "parse 8.0.25 minor");
-        assert_eq_int(v.patch, 25, "parse 8.0.25 patch");
-        assert_str_eq(v.prerelease, "", "parse 8.0.25 prerelease empty");
-    }
-}
-
-fn test_parse_prerelease() {
-    raw {
-        SemVer v;
-        assert_eq_int(_sv_parse("9.0.0-preview.1", &v), 0, "parse 9.0.0-preview.1 returns 0");
-        assert_eq_int(v.major, 9, "parse 9.0.0-preview.1 major");
-        assert_eq_int(v.minor, 0, "parse 9.0.0-preview.1 minor");
-        assert_eq_int(v.patch, 0, "parse 9.0.0-preview.1 patch");
-        assert_str_eq(v.prerelease, "preview.1", "parse 9.0.0-preview.1 prerelease");
-    }
-}
-
-fn test_parse_invalid() {
-    raw {
-        SemVer v;
-        assert_eq_int(_sv_parse(NULL, &v), -1, "parse NULL returns -1");
-        assert_eq_int(_sv_parse("abc", &v), -1, "parse 'abc' returns -1");
-        assert_eq_int(_sv_parse("1", &v), -1, "parse '1' returns -1");
-    }
-}
-
-fn test_cmp() {
-    raw {
-        SemVer a, b;
-        _sv_parse("8.0.25", &a);
-        _sv_parse("8.0.24", &b);
-        assert_true(semver_cmp(&a, &b) > 0, "8.0.25 > 8.0.24");
-
-        _sv_parse("9.0.0", &a);
-        _sv_parse("8.99.99", &b);
-        assert_true(semver_cmp(&a, &b) > 0, "9.0.0 > 8.99.99");
-
-        _sv_parse("8.0.0", &a);
-        _sv_parse("8.0.0", &b);
-        assert_true(semver_cmp(&a, &b) == 0, "8.0.0 == 8.0.0");
-
-        _sv_parse("9.0.0", &a);
-        _sv_parse("9.0.0-preview.1", &b);
-        assert_true(semver_cmp(&a, &b) > 0, "9.0.0 > 9.0.0-preview.1");
-    }
-}
-
-fn test_satisfies() {
-    raw {
-        SemVer v;
-        _sv_parse("8.0.25", &v);
-
-        assert_true(semver_satisfies(&v, ">8.0.0", 0), "8.0.25 satisfies >8.0.0");
-        assert_true(semver_satisfies(&v, ">=8.0.25", 0), "8.0.25 satisfies >=8.0.25");
-        assert_true(semver_satisfies(&v, "^8.0.0", 0), "8.0.25 satisfies ^8.0.0");
-        assert_true(!semver_satisfies(&v, "<8.0.0", 0), "8.0.25 does NOT satisfy <8.0.0");
-        assert_true(!semver_satisfies(&v, "~9.0.0", 0), "8.0.25 does NOT satisfy ~9.0.0");
-        assert_true(semver_satisfies(&v, "=8.0.25", 0), "8.0.25 satisfies =8.0.25");
-        assert_true(!semver_satisfies(&v, "=8.0.24", 0), "8.0.25 does NOT satisfy =8.0.24");
-    }
-}
-
-fn test_satisfies_prerelease() {
-    raw {
-        SemVer v;
-        _sv_parse("9.0.0-rc.1", &v);
-
-        assert_true(!semver_satisfies(&v, ">0.0.0", 0),
-                    "9.0.0-rc.1 excluded by default");
-        assert_true(semver_satisfies(&v, ">0.0.0", 1),
-                    "9.0.0-rc.1 included with flag");
-        assert_true(semver_satisfies(&v, "^9.0.0-alpha.0", 1),
-                    "9.0.0-rc.1 satisfies ^9.0.0-alpha.0 with prerelease flag");
-    }
-}
-
-fn main() {
-    test_parse_basic()
-    test_parse_prerelease()
-    test_parse_invalid()
-    test_cmp()
-    test_satisfies()
-    test_satisfies_prerelease()
-
-    raw {
-        printf("\nSemver tests: %d passed, %d failed\n", _tests_passed, _tests_failed);
-        if (_tests_failed > 0) exit(1);
+        assert(_sv_parse("8.0.25", &v) == 0, "_sv_parse should succeed");
+        assert(v.major == 8, "_sv_parse major");
+        assert(v.minor == 0, "_sv_parse minor");
+        assert(v.patch == 25, "_sv_parse patch");
+        assert(_sv_parse(NULL, &v) == -1, "_sv_parse NULL should fail");
+        assert(_sv_parse("abc", &v) == -1, "_sv_parse abc should fail");
+        assert(_sv_parse("1", &v) == -1, "_sv_parse 1 should fail");
     }
 }

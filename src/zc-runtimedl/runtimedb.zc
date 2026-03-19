@@ -18,7 +18,6 @@ static int find_best_entry(const char* runtime_type, const char* platform,
                            const char* arch, const char* version_pattern,
                            int include_prerelease, RuntimeEntry* result);
 
-// Forward declare the Zen-C implementation (defined below)
 int _find_best_entry_impl(char* runtime_type, char* platform, char* arch,
                            char* version_pattern, int include_prerelease,
                            RuntimeEntry* result);
@@ -29,12 +28,17 @@ fn _find_best_entry_impl(runtime_type: char*, platform: char*, arch: char*,
                           result: RuntimeEntry*) -> int {
 
     let json_key = type_to_json_key(runtime_type)
-    let file_prefix = type_to_file_prefix(runtime_type)
+    let file_prefix_str = String::new(type_to_file_prefix(runtime_type))
+
+    let platform_str = String::new(platform)
+    let ext_str = String::new(".tar.gz")
+    if (platform_str.eq_str("windows")) {
+        ext_str = String::new(".zip")
+    }
 
     raw {
         char rid[64];
         build_rid(platform, arch, rid, sizeof(rid));
-        const char *ext = (strcmp(platform, "windows") == 0) ? ".zip" : ".tar.gz";
         SemVer best_ver = {0};
         int found = 0;
         size_t fetch_len;
@@ -63,11 +67,11 @@ fn _find_best_entry_impl(runtime_type: char*, platform: char*, arch: char*,
 
     for (let i: usize = 0; i < ri_len; i = i + 1) {
         let channel_opt = (*ri).at(i)
-        if (channel_opt.is_none()) { raw { continue; } }
+        if (channel_opt.is_none()) { continue }
         let channel: JsonValue* = channel_opt.unwrap()
 
         let rel_url_opt = (*channel).get_string("releases.json")
-        if (rel_url_opt.is_none()) { raw { continue; } }
+        if (rel_url_opt.is_none()) { continue }
         let rel_url: char* = rel_url_opt.unwrap()
 
         raw {
@@ -77,64 +81,62 @@ fn _find_best_entry_impl(runtime_type: char*, platform: char*, arch: char*,
 
         let chan_result = JsonValue::parse(chan_json)
         raw { free(chan_json); }
-        if (chan_result.is_err()) { raw { continue; } }
+        if (chan_result.is_err()) { continue }
         let chan: JsonValue* = chan_result.unwrap()
 
         let releases_opt = (*chan).get_array("releases")
-        if (releases_opt.is_none()) { raw { continue; } }
+        if (releases_opt.is_none()) { continue }
         let releases: JsonValue* = releases_opt.unwrap()
         let releases_len = (*releases).len()
 
         for (let j: usize = 0; j < releases_len; j = j + 1) {
             let release_opt = (*releases).at(j)
-            if (release_opt.is_none()) { raw { continue; } }
+            if (release_opt.is_none()) { continue }
             let release: JsonValue* = release_opt.unwrap()
 
             let component_opt = (*release).get(json_key)
-            if (component_opt.is_none()) { raw { continue; } }
+            if (component_opt.is_none()) { continue }
             let component: JsonValue* = component_opt.unwrap()
 
             let ver_str_opt = (*component).get_string("version")
-            if (ver_str_opt.is_none()) { raw { continue; } }
+            if (ver_str_opt.is_none()) { continue }
             let ver_str: char* = ver_str_opt.unwrap()
 
-            raw {
-                SemVer ver;
-                if (_sv_parse(ver_str, &ver) != 0) continue;
-                if (!semver_satisfies(&ver, version_pattern, include_prerelease))
-                    continue;
+            let ver = parse_semver(ver_str)
+            if (semver_satisfies(&ver, version_pattern, include_prerelease) == 0) {
+                continue
             }
 
             let files_opt = (*component).get_array("files")
-            if (files_opt.is_none()) { raw { continue; } }
+            if (files_opt.is_none()) { continue }
             let files: JsonValue* = files_opt.unwrap()
             let files_len = (*files).len()
 
             for (let k: usize = 0; k < files_len; k = k + 1) {
                 let file_opt = (*files).at(k)
-                if (file_opt.is_none()) { raw { continue; } }
+                if (file_opt.is_none()) { continue }
                 let file: JsonValue* = file_opt.unwrap()
 
                 let file_rid_opt = (*file).get_string("rid")
-                if (file_rid_opt.is_none()) { raw { continue; } }
+                if (file_rid_opt.is_none()) { continue }
                 let file_rid: char* = file_rid_opt.unwrap()
-                raw { if (strcmp(file_rid, rid) != 0) continue; }
+
+                // Compare RID using Zen-C String
+                let file_rid_s = String::new(file_rid)
+                let rid_s = String::new(rid)
+                if (!file_rid_s.eq(&rid_s)) { continue }
 
                 let fname_opt = (*file).get_string("name")
-                if (fname_opt.is_none()) { raw { continue; } }
+                if (fname_opt.is_none()) { continue }
                 let fname: char* = fname_opt.unwrap()
 
-                raw {
-                    if (strncmp(fname, file_prefix, strlen(file_prefix)) != 0)
-                        continue;
-                    size_t fname_len = strlen(fname);
-                    size_t ext_len = strlen(ext);
-                    if (fname_len < ext_len) continue;
-                    if (strcmp(fname + fname_len - ext_len, ext) != 0) continue;
-                }
+                // Check filename prefix and extension using Zen-C String
+                let fname_s = String::new(fname)
+                if (!fname_s.starts_with(file_prefix_str.c_str())) { continue }
+                if (!fname_s.ends_with(ext_str.c_str())) { continue }
 
                 let url_val_opt = (*file).get_string("url")
-                if (url_val_opt.is_none()) { raw { continue; } }
+                if (url_val_opt.is_none()) { continue }
                 let url_val: char* = url_val_opt.unwrap()
 
                 let hash_val: char* = NULL

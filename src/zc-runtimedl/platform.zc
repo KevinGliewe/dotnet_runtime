@@ -1,7 +1,10 @@
 // platform.zc — Platform/architecture detection and RID mapping
 
+import "./extern/zenc-std/string.zc"
+
 raw {
 #include <string.h>
+#include <stdio.h>
 #include <sys/utsname.h>
 
 typedef struct {
@@ -40,53 +43,48 @@ static DetectedSystem detect_system(void) {
 }
 
 fn platform_to_rid(platform: char*) -> char* {
-    raw {
-        if (strcmp(platform, "windows") == 0) return "win";
-        if (strcmp(platform, "macos") == 0) return "osx";
-        if (strcmp(platform, "linux") == 0) return "linux";
-    }
+    let s = String::new(platform)
+    if (s.eq_str("windows")) { return "win" }
+    if (s.eq_str("macos")) { return "osx" }
+    if (s.eq_str("linux")) { return "linux" }
     return platform
 }
 
 fn arch_to_rid(arch: char*) -> char* {
-    raw {
-        if (strcmp(arch, "arm32") == 0) return "arm";
-    }
+    let s = String::new(arch)
+    if (s.eq_str("arm32")) { return "arm" }
     return arch
 }
 
 fn build_rid(platform: char*, arch: char*, out: char*, out_sz: int) {
-    raw {
-        const char *alpine = strstr(arch, "-alpine");
-        if (alpine) {
-            char base_arch[32];
-            size_t base_len = alpine - arch;
-            if (base_len >= sizeof(base_arch)) base_len = sizeof(base_arch) - 1;
-            memcpy(base_arch, arch, base_len);
-            base_arch[base_len] = 0;
-            snprintf(out, out_sz, "linux-musl-%s", arch_to_rid(base_arch));
-            return;
-        }
-        snprintf(out, out_sz, "%s-%s", platform_to_rid(platform), arch_to_rid(arch));
+    let arch_str = String::new(arch)
+    let is_alpine = arch_str.contains_str("-alpine")
+    if (is_alpine) {
+        let dash = arch_str.find_str("-alpine")
+        let idx = dash.unwrap()
+        let base = arch_str.substring(0, idx)
+        let base_rid = arch_to_rid(base.c_str())
+        raw { snprintf(out, out_sz, "linux-musl-%s", base_rid); return; }
     }
+    let plat_rid = platform_to_rid(platform)
+    let arch_rid = arch_to_rid(arch)
+    raw { snprintf(out, out_sz, "%s-%s", plat_rid, arch_rid); }
 }
 
 fn type_to_json_key(runtime_type: char*) -> char* {
-    raw {
-        if (strcmp(runtime_type, "sdk") == 0) return "sdk";
-        if (strcmp(runtime_type, "runtime") == 0) return "runtime";
-        if (strcmp(runtime_type, "runtime-aspnetcore") == 0) return "aspnetcore-runtime";
-        if (strcmp(runtime_type, "runtime-desktop") == 0) return "windowsdesktop";
-    }
+    let s = String::new(runtime_type)
+    if (s.eq_str("sdk")) { return "sdk" }
+    if (s.eq_str("runtime")) { return "runtime" }
+    if (s.eq_str("runtime-aspnetcore")) { return "aspnetcore-runtime" }
+    if (s.eq_str("runtime-desktop")) { return "windowsdesktop" }
     return "runtime"
 }
 
 fn type_to_file_prefix(runtime_type: char*) -> char* {
-    raw {
-        if (strcmp(runtime_type, "sdk") == 0) return "dotnet-sdk-";
-        if (strcmp(runtime_type, "runtime") == 0) return "dotnet-runtime-";
-        if (strcmp(runtime_type, "runtime-aspnetcore") == 0) return "aspnetcore-runtime-";
-        if (strcmp(runtime_type, "runtime-desktop") == 0) return "windowsdesktop-runtime-";
-    }
+    let s = String::new(runtime_type)
+    if (s.eq_str("sdk")) { return "dotnet-sdk-" }
+    if (s.eq_str("runtime")) { return "dotnet-runtime-" }
+    if (s.eq_str("runtime-aspnetcore")) { return "aspnetcore-runtime-" }
+    if (s.eq_str("runtime-desktop")) { return "windowsdesktop-runtime-" }
     return "dotnet-runtime-"
 }
