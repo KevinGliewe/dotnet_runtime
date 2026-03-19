@@ -1,0 +1,219 @@
+// runtimedl - .NET Runtime Downloader
+// A cross-OS Actually Portable Executable (APE) built with Zen-C + cosmocc
+//
+// Downloads and extracts .NET runtimes from Microsoft's official releases.
+// Single binary runs on Linux, macOS, Windows, FreeBSD, OpenBSD, NetBSD.
+
+import "./runtimedb.zc"
+import "./archive.zc"
+import "./runtimedl_helpers.zc"
+
+raw {
+#include <getopt.h>
+
+#define VERSION "1.0.0"
+}
+
+fn print_usage(_prog: char*) {
+    raw { printf("runtimedl v%s - .NET Runtime Downloader (APE)\n\n", VERSION); }
+    println "Usage: {_prog} [options]"
+    println ""
+    println "Options:"
+    println "  --runtime-type TYPE    Runtime type: sdk, runtime, runtime-aspnetcore,"
+    println "                         runtime-desktop (default: runtime)"
+    println "  --platform PLATFORM    Platform: linux, windows, macos, local"
+    println "                         (default: local = auto-detect)"
+    println "  --architecture ARCH    Architecture: x64, x86, arm64, arm32,"
+    println "                         arm64-alpine, local (default: local = auto-detect)"
+    println "  --version-pattern PAT  Semver range: >1.0.0, >=8.0.0, ^8.0.0, etc."
+    println "                         (default: >0.0.0)"
+    println "  --include-prerelease   Include prerelease versions (default: false)"
+    println "  --output DIR           Output directory (default: ./runtime)"
+    println "  --download BOOL        Download the runtime (default: true)"
+    println "  --help                 Show this help message"
+    println "  --version              Show version information"
+}
+
+fn main() {
+    // Argument parsing via getopt_long (C struct/macro required)
+    raw {
+        char runtime_type[64] = "runtime";
+        char platform[64] = "local";
+        char architecture[64] = "local";
+        char version_pattern[256] = ">0.0.0";
+        int include_prerelease = 0;
+        char output[MAX_PATH_LEN] = "./runtime";
+        int do_download = 1;
+
+        static struct option long_opts[] = {
+            {"runtime-type", required_argument, 0, 't'},
+            {"platform", required_argument, 0, 'p'},
+            {"architecture", required_argument, 0, 'a'},
+            {"version-pattern", required_argument, 0, 'v'},
+            {"include-prerelease", no_argument, 0, 'r'},
+            {"output", required_argument, 0, 'o'},
+            {"download", required_argument, 0, 'd'},
+            {"help", no_argument, 0, 'h'},
+            {"version", no_argument, 0, 'V'},
+            {0, 0, 0, 0}
+        };
+
+        extern int __argc;
+        extern char **__argv;
+        int argc = __argc;
+        char **argv = __argv;
+
+        int opt;
+        optind = 1;
+        while ((opt = getopt_long(argc, argv, "t:p:a:v:ro:d:hV",
+                                  long_opts, NULL)) != -1) {
+            switch (opt) {
+                case 't': strncpy(runtime_type, optarg,
+                                  sizeof(runtime_type)-1); break;
+                case 'p': strncpy(platform, optarg,
+                                  sizeof(platform)-1); break;
+                case 'a': strncpy(architecture, optarg,
+                                  sizeof(architecture)-1); break;
+                case 'v': strncpy(version_pattern, optarg,
+                                  sizeof(version_pattern)-1); break;
+                case 'r': include_prerelease = 1; break;
+                case 'o': strncpy(output, optarg,
+                                  sizeof(output)-1); break;
+                case 'd':
+                    if (is_false_str(optarg)) do_download = 0;
+                    break;
+                case 'h': print_usage(argv[0]); exit(0);
+                case 'V': printf("runtimedl v%s (APE)\n", VERSION); exit(0);
+                default: print_usage(argv[0]); exit(1);
+            }
+        }
+    }
+
+    // Normalize arguments using Zen-C functions
+    normalize_runtime_type(runtime_type)
+    strtolower(platform)
+    strtolower(architecture)
+
+    // Platform auto-detection using Zen-C String comparisons
+    let platform_s = String::new(platform)
+    let arch_s = String::new(architecture)
+    if (platform_s.eq_str("local") || arch_s.eq_str("local")) {
+        raw {
+            DetectedSystem sys = detect_system();
+            if (strcmp(platform, "local") == 0)
+                strcpy(platform, sys.platform);
+            if (strcmp(architecture, "local") == 0)
+                strcpy(architecture, sys.arch);
+        }
+    }
+
+    println "Runtime Type     : {(char*)runtime_type}"
+    println "Platform         : {(char*)platform}"
+    println "Architecture     : {(char*)architecture}"
+    println "Version Pattern  : {(char*)version_pattern}"
+    println "Output           : {(char*)output}"
+    println ""
+
+    println "Querying releases..."
+    raw {
+        RuntimeEntry entry = {{0}, {0}, {0}};
+        if (find_best_entry(runtime_type, platform, architecture,
+                            version_pattern, include_prerelease,
+                            &entry) != 0) {
+            fprintf(stderr,
+                "Error: No matching entry found for type=%s, "
+                "platform=%s, arch=%s, version=%s\n",
+                runtime_type, platform, architecture, version_pattern);
+            exit(1);
+        }
+    }
+
+    println "Found Entry      :"
+    println "  Version        : {(char*)entry.version}"
+    println "  URL            : {(char*)entry.url}"
+    println "  Checksum       : {(char*)entry.checksum}"
+    println ""
+
+    if (!do_download) {
+        raw { exit(0); }
+    }
+
+    raw {
+        const char *tmpdir = "/tmp/runtimedl";
+        mkdir(tmpdir, 0755);
+        char tmpfile[MAX_PATH_LEN];
+    }
+    let fname = get_filename_from_url(entry.url)
+    format_into(tmpfile, MAX_PATH_LEN, "%s/%s", tmpdir, fname)
+
+    raw {
+        if (download_file(entry.url, tmpfile) != 0) {
+            fprintf(stderr, "Error: Download failed\n");
+            exit(1);
+        }
+    }
+    println "Download complete"
+
+    // Checksum verification
+    raw {
+        char _has_checksum = entry.checksum[0];
+        char computed[129];
+        char expected_lower[256];
+    }
+    if (_has_checksum) {
+        println "Verifying checksum..."
+        raw {
+            compute_file_sha512(tmpfile, computed);
+            strncpy(expected_lower, entry.checksum, sizeof(expected_lower)-1);
+            expected_lower[sizeof(expected_lower)-1] = 0;
+        }
+        strtolower(expected_lower)
+        strtolower(computed)
+        let computed_s = String::new(computed)
+        let expected_s = String::new(expected_lower)
+        if (!computed_s.eq(&expected_s)) {
+            raw {
+                fprintf(stderr,
+                    "Error: Checksum mismatch!\n"
+                    "  Expected: %s\n  Got:      %s\n",
+                    expected_lower, computed);
+                remove(tmpfile);
+                exit(1);
+            }
+        }
+        println "Hash OK          : {(char*)computed}"
+    }
+
+    println "Unpacking..."
+    raw {
+        char outdir[MAX_PATH_LEN];
+    }
+    format_into(outdir, MAX_PATH_LEN, "%s/%s/%s", output, platform, architecture)
+    raw { mkdirp(outdir); }
+
+    // Archive extraction using Zen-C format detection
+    let archive_fmt = detect_archive_format(tmpfile)
+    if (archive_fmt == 1) {
+        raw {
+            if (extract_tar_gz(tmpfile, outdir) != 0) {
+                fprintf(stderr, "Error: Extraction failed\n");
+                exit(1);
+            }
+        }
+    } else if (archive_fmt == 2) {
+        raw {
+            if (extract_zip(tmpfile, outdir) != 0) {
+                fprintf(stderr, "Error: Zip extraction failed\n");
+                exit(1);
+            }
+        }
+    } else {
+        println "Error: Unknown archive format: {(char*)tmpfile}"
+        raw { exit(1); }
+    }
+
+    println "Cleaning up"
+    raw { remove(tmpfile); }
+
+    println "Done"
+}

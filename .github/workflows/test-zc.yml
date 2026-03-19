@@ -1,0 +1,179 @@
+name: Test Zen-C
+
+on:
+  push:
+    tags:
+      - 'v*'
+    paths:
+      - 'src/zc-runtimedl/**'
+  pull_request:
+    paths:
+      - 'src/zc-runtimedl/**'
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup zc-ape toolchain
+        run: |
+          cd src/zc-runtimedl
+          curl -L -o zc-boot.com https://github.com/OEvgeny/zc-ape/releases/download/v0.0.2/zc-boot.com
+          chmod +x zc-boot.com
+          ./zc-boot.com
+
+      - name: Upgrade Zen-C compiler to v0.4.3
+        run: |
+          cd src/zc-runtimedl
+          curl -L -o usr/bin/zc.com https://github.com/zenc-lang/zenc/releases/download/v0.4.3/zc.com
+          chmod +x usr/bin/zc.com
+
+      - name: Register APE loader
+        run: |
+          sudo cp src/zc-runtimedl/usr/bin/ape-x86_64.elf /usr/bin/ape
+          sudo chmod +x /usr/bin/ape
+          sudo sh -c "echo ':APE:M::MZqFpD::/usr/bin/ape:' >/proc/sys/fs/binfmt_misc/register" || true
+
+      - name: Run tests
+        run: |
+          cd src/zc-runtimedl
+          make test
+
+      - name: Build full binary
+        run: |
+          cd src/zc-runtimedl
+          make all
+
+      - name: Publish APE binary
+        run: |
+          mkdir -p publish
+          cp src/zc-runtimedl/out/runtimedl.com publish/
+          cp src/zc-runtimedl/usr/bin/ape-x86_64.elf publish/
+          cd publish
+          tar -czf ../runtimedl-ape.tar.gz *
+
+      - name: Upload APE archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtimedl-ape
+          path: runtimedl-ape.tar.gz
+
+      - name: Upload APE loader
+        uses: actions/upload-artifact@v4
+        with:
+          name: ape-loader
+          path: src/zc-runtimedl/usr/bin/ape-x86_64.elf
+
+  integration-test:
+    needs: test
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux
+            arch: x64
+            expected_arch: x64
+            dotnet_path: ./test-runtime/linux/x64/dotnet
+          - runner: macos-latest
+            platform: macos
+            arch: arm64
+            expected_arch: arm64
+            dotnet_path: ./test-runtime/macos/arm64/dotnet
+          - runner: windows-latest
+            platform: windows
+            arch: x64
+            expected_arch: x64
+            dotnet_path: ./test-runtime/windows/x64/dotnet.exe
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Download APE archive
+        uses: actions/download-artifact@v4
+        with:
+          name: runtimedl-ape
+
+      - name: Extract APE archive
+        run: tar -xzf runtimedl-ape.tar.gz
+
+      - name: Setup APE (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo cp ape-x86_64.elf /usr/bin/ape
+          sudo chmod +x /usr/bin/ape
+          sudo sh -c "echo ':APE:M::MZqFpD::/usr/bin/ape:' >/proc/sys/fs/binfmt_misc/register" || true
+          chmod +x runtimedl.com
+
+      - name: Setup APE (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          xattr -d com.apple.quarantine runtimedl.com 2>/dev/null || true
+          chmod +x runtimedl.com
+
+      - name: Download runtime (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          ./runtimedl.com \
+            --runtime-type runtime \
+            --platform ${{ matrix.platform }} \
+            --architecture ${{ matrix.arch }} \
+            --version-pattern "^8.0.0" \
+            --output ./test-runtime
+
+      - name: Download runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          & .\runtimedl.com --runtime-type runtime --platform ${{ matrix.platform }} --architecture ${{ matrix.arch }} --version-pattern "^8.0.0" --output ./test-runtime
+
+      - name: Fix dotnet permissions (Unix)
+        if: runner.os != 'Windows'
+        run: chmod +x "${{ matrix.dotnet_path }}"
+
+      - name: Verify runtime
+        shell: bash
+        run: |
+          echo "=== Checking dotnet binary exists ==="
+          ls -la "${{ matrix.dotnet_path }}"
+
+          echo "=== Running dotnet --info ==="
+          "${{ matrix.dotnet_path }}" --info
+
+          echo "=== Verifying architecture ==="
+          ARCH=$("${{ matrix.dotnet_path }}" --info | grep -i "Architecture:" | head -1 | awk '{print $2}')
+          echo "Detected architecture: $ARCH"
+          echo "Expected architecture: ${{ matrix.expected_arch }}"
+          if [ "$(echo "$ARCH" | tr '[:upper:]' '[:lower:]')" != "${{ matrix.expected_arch }}" ]; then
+            echo "ERROR: Architecture mismatch!"
+            exit 1
+          fi
+
+          echo "=== Verifying runtime is installed ==="
+          "${{ matrix.dotnet_path }}" --list-runtimes
+          "${{ matrix.dotnet_path }}" --list-runtimes | grep -q "Microsoft.NETCore.App 8.0"
+          echo "All verifications passed for ${{ matrix.platform }}/${{ matrix.arch }}"
+
+  release:
+    needs: [test, integration-test]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: runtimedl-ape
+          path: artifacts/runtimedl-ape
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/**/*

@@ -1,0 +1,130 @@
+// semver.zc — Semantic version parsing and comparison (Zen-C)
+
+import "./extern/zenc-std/string.zc"
+
+fn _str_to_int(s: String*) -> int {
+    let result: int = 0
+    let len = s.length()
+    let _p = s.c_str()
+    for (let i: usize = 0; i < len; i = i + 1) {
+        let c: int = _p[i]
+        if (c >= 48 && c <= 57) {
+            result = result * 10 + (c - 48)
+        } else {
+            break
+        }
+    }
+    return result
+}
+
+struct SemVer {
+    major: int,
+    minor: int,
+    patch: int,
+    prerelease: String
+}
+
+fn parse_semver(s: char*) -> SemVer {
+    let str = String::new(s)
+    let major: int = 0
+    let minor: int = 0
+    let patch: int = 0
+    let pre = String::new("")
+
+    let dash = str.find('-')
+    if (dash.is_some()) {
+        let idx = dash.unwrap()
+        pre = str.substring(idx + 1, str.length() - idx - 1)
+    }
+
+    let parts = str.split('.')
+    let plen = parts.length()
+    if (plen >= 1) {
+        let p0 = parts.get(0)
+        major = _str_to_int(&p0)
+    }
+    if (plen >= 2) {
+        let p1 = parts.get(1)
+        minor = _str_to_int(&p1)
+    }
+    if (plen >= 3) {
+        let p2_str = parts.get(2)
+        let p2_dash = p2_str.find('-')
+        if (p2_dash.is_some()) {
+            let di = p2_dash.unwrap()
+            let num_part = p2_str.substring(0, di)
+            patch = _str_to_int(&num_part)
+        } else {
+            patch = _str_to_int(&p2_str)
+        }
+    }
+
+    return SemVer { major: major, minor: minor, patch: patch, prerelease: pre }
+}
+
+fn semver_cmp(a: SemVer*, b: SemVer*) -> int {
+    if (a.major != b.major) { return a.major - b.major }
+    if (a.minor != b.minor) { return a.minor - b.minor }
+    if (a.patch != b.patch) { return a.patch - b.patch }
+
+    let a_has_pre = !a.prerelease.is_empty()
+    let b_has_pre = !b.prerelease.is_empty()
+
+    if (a_has_pre && !b_has_pre) { return -1 }
+    if (!a_has_pre && b_has_pre) { return 1 }
+    if (a_has_pre && b_has_pre) {
+        return a.prerelease.compare(&b.prerelease)
+    }
+
+    return 0
+}
+
+fn semver_satisfies(ver: SemVer*, range: char*, include_pre: int) -> int {
+    if (include_pre == 0 && !ver.prerelease.is_empty()) {
+        return 0
+    }
+
+    let r = String::new(range)
+    let trimmed = r.trim()
+
+    // Parse operator
+    let op = String::new("=")
+    let rest = trimmed
+
+    if (trimmed.starts_with(">=")) {
+        op = String::new(">=")
+        rest = trimmed.substring(2, trimmed.length() - 2)
+    } else if (trimmed.starts_with("<=")) {
+        op = String::new("<=")
+        rest = trimmed.substring(2, trimmed.length() - 2)
+    } else if (trimmed.starts_with(">")) {
+        op = String::new(">")
+        rest = trimmed.substring(1, trimmed.length() - 1)
+    } else if (trimmed.starts_with("<")) {
+        op = String::new("<")
+        rest = trimmed.substring(1, trimmed.length() - 1)
+    } else if (trimmed.starts_with("=")) {
+        op = String::new("=")
+        rest = trimmed.substring(1, trimmed.length() - 1)
+    } else if (trimmed.starts_with("^")) {
+        op = String::new("^")
+        rest = trimmed.substring(1, trimmed.length() - 1)
+    } else if (trimmed.starts_with("~")) {
+        op = String::new("~")
+        rest = trimmed.substring(1, trimmed.length() - 1)
+    }
+
+    let rest_trimmed = rest.trim()
+    let rv = parse_semver(rest_trimmed.c_str())
+    let c = semver_cmp(ver, &rv)
+
+    if (op.eq_str(">=")) { return c >= 0 }
+    if (op.eq_str(">"))  { return c > 0 }
+    if (op.eq_str("<=")) { return c <= 0 }
+    if (op.eq_str("<"))  { return c < 0 }
+    if (op.eq_str("="))  { return c == 0 }
+    if (op.eq_str("^"))  { return c >= 0 && ver.major == rv.major }
+    if (op.eq_str("~"))  { return c >= 0 && ver.major == rv.major && ver.minor == rv.minor }
+
+    return 0
+}

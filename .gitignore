@@ -133,3 +133,10 @@ $RECYCLE.BIN/
 .DS_Store
 
 _NCrunch*
+
+# zc-runtimedl build artifacts and toolchain
+src/zc-runtimedl/usr/
+src/zc-runtimedl/out/
+src/zc-runtimedl/zc-boot.com
+src/zc-runtimedl/capture-cc.sh
+.claude/

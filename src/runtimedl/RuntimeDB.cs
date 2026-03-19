@@ -8,6 +8,10 @@ using SemanticVersioning;
 
 namespace runtimedl
 {
+    [JsonSerializable(typeof(RuntimeDB.ReleasesIndexRoot))]
+    [JsonSerializable(typeof(RuntimeDB.ChannelReleasesRoot))]
+    internal partial class RuntimeDBJsonContext : JsonSerializerContext { }
+
     public class RuntimeDB
     {
         public static readonly string RELEASES_INDEX_URL = "https://dotnetcli.blob.core.windows.net/dotnet/release-metadata/releases-index.json";
@@ -43,12 +47,12 @@ namespace runtimedl
 
         #region JSON model classes
 
-        private class ReleasesIndexRoot {
+        internal class ReleasesIndexRoot {
             [JsonPropertyName("releases-index")]
             public List<ChannelEntry> ReleasesIndex { get; set; }
         }
 
-        private class ChannelEntry {
+        internal class ChannelEntry {
             [JsonPropertyName("channel-version")]
             public string ChannelVersion { get; set; }
 
@@ -56,12 +60,12 @@ namespace runtimedl
             public string ReleasesJsonUrl { get; set; }
         }
 
-        private class ChannelReleasesRoot {
+        internal class ChannelReleasesRoot {
             [JsonPropertyName("releases")]
             public List<Release> Releases { get; set; }
         }
 
-        private class Release {
+        internal class Release {
             [JsonPropertyName("release-version")]
             public string ReleaseVersion { get; set; }
 
@@ -78,7 +82,7 @@ namespace runtimedl
             public Component Windowsdesktop { get; set; }
         }
 
-        private class Component {
+        internal class Component {
             [JsonPropertyName("version")]
             public string Version { get; set; }
 
@@ -86,7 +90,7 @@ namespace runtimedl
             public List<FileEntry> Files { get; set; }
         }
 
-        private class FileEntry {
+        internal class FileEntry {
             [JsonPropertyName("name")]
             public string Name { get; set; }
 
@@ -138,7 +142,7 @@ namespace runtimedl
             var client = new HttpClient();
 
             var indexJson = client.GetStringAsync(RELEASES_INDEX_URL).Result;
-            var index = JsonSerializer.Deserialize<ReleasesIndexRoot>(indexJson);
+            var index = JsonSerializer.Deserialize(indexJson, RuntimeDBJsonContext.Default.ReleasesIndexRoot);
 
             foreach (var channel in index.ReleasesIndex) {
                 if (string.IsNullOrEmpty(channel.ReleasesJsonUrl))
@@ -146,7 +150,7 @@ namespace runtimedl
 
                 try {
                     var channelJson = client.GetStringAsync(channel.ReleasesJsonUrl).Result;
-                    var channelReleases = JsonSerializer.Deserialize<ChannelReleasesRoot>(channelJson);
+                    var channelReleases = JsonSerializer.Deserialize(channelJson, RuntimeDBJsonContext.Default.ChannelReleasesRoot);
                     if (channelReleases?.Releases != null)
                         _allReleases.AddRange(channelReleases.Releases);
                 } catch {

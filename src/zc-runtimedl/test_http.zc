@@ -1,0 +1,199 @@
+// test_http.zc — Unit tests for http helper functions (parse_url, base64, proxy)
+
+import "./http.zc"
+
+raw {
+#include <string.h>
+#include <stdlib.h>
+}
+
+// ---- parse_url tests ----
+
+test "parse_url https basic" {
+    raw { ParsedURL u; }
+    let ret = parse_url("https://example.com/path/to/resource", &u)
+    assert(ret == 0, "should parse successfully")
+    raw {
+        assert(strcmp(u.host, "example.com") == 0, "host should be example.com");
+        assert(strcmp(u.port, "443") == 0, "port should be 443");
+        assert(strcmp(u.path, "/path/to/resource") == 0, "path should match");
+        assert(u.is_https == 1, "should be https");
+    }
+}
+
+test "parse_url http with port" {
+    raw { ParsedURL u; }
+    let ret = parse_url("http://localhost:8080/api", &u)
+    assert(ret == 0, "should parse successfully")
+    raw {
+        assert(strcmp(u.host, "localhost") == 0, "host should be localhost");
+        assert(strcmp(u.port, "8080") == 0, "port should be 8080");
+        assert(strcmp(u.path, "/api") == 0, "path should be /api");
+        assert(u.is_https == 0, "should not be https");
+    }
+}
+
+test "parse_url no path defaults to slash" {
+    raw { ParsedURL u; }
+    let ret = parse_url("https://example.com", &u)
+    assert(ret == 0, "should parse successfully")
+    raw {
+        assert(strcmp(u.host, "example.com") == 0, "host");
+        assert(strcmp(u.port, "443") == 0, "port");
+        assert(strcmp(u.path, "/") == 0, "path should default to /");
+    }
+}
+
+test "parse_url invalid scheme" {
+    raw { ParsedURL u; }
+    let ret = parse_url("ftp://example.com", &u)
+    assert(ret == -1, "should fail for ftp scheme")
+}
+
+test "parse_url http default port 80" {
+    raw { ParsedURL u; }
+    let ret = parse_url("http://host.example.org/file.tar.gz", &u)
+    assert(ret == 0, "should succeed")
+    raw {
+        assert(strcmp(u.port, "80") == 0, "http default port should be 80");
+        assert(u.is_https == 0, "should not be https");
+    }
+}
+
+test "parse_url long path" {
+    raw { ParsedURL u; }
+    let ret = parse_url("https://dotnetcli.blob.core.windows.net/dotnet/release-metadata/releases-index.json", &u)
+    assert(ret == 0, "should succeed")
+    raw {
+        assert(strcmp(u.host, "dotnetcli.blob.core.windows.net") == 0, "host");
+        assert(strcmp(u.path, "/dotnet/release-metadata/releases-index.json") == 0, "path");
+    }
+}
+
+// ---- base64_encode tests ----
+
+test "base64 encode three bytes" {
+    raw { char buf[64]; }
+    let n = base64_encode("Man", 3, buf, 64)
+    raw { assert(strcmp(buf, "TWFu") == 0, "Man -> TWFu"); }
+    assert(n == 4, "length should be 4")
+}
+
+test "base64 encode five bytes" {
+    raw { char buf[64]; }
+    let n = base64_encode("Hello", 5, buf, 64)
+    raw { assert(strcmp(buf, "SGVsbG8=") == 0, "Hello -> SGVsbG8="); }
+    assert(n == 8, "length should be 8")
+}
+
+test "base64 encode single byte" {
+    raw { char buf[64]; }
+    let n = base64_encode("A", 1, buf, 64)
+    raw { assert(strcmp(buf, "QQ==") == 0, "A -> QQ=="); }
+    assert(n == 4, "length should be 4")
+}
+
+test "base64 encode two bytes" {
+    raw { char buf[64]; }
+    let n = base64_encode("Ma", 2, buf, 64)
+    raw { assert(strcmp(buf, "TWE=") == 0, "Ma -> TWE="); }
+    assert(n == 4, "length should be 4")
+}
+
+test "base64 encode empty" {
+    raw { char buf[64]; buf[0] = 'X'; }
+    let n = base64_encode("", 0, buf, 64)
+    assert(n == 0, "empty should give length 0")
+    raw { assert(buf[0] == 0, "should null-terminate"); }
+}
+
+test "base64 encode user:pass" {
+    raw { char buf[256]; }
+    let n = base64_encode("user:pass", 9, buf, 256)
+    raw { assert(strcmp(buf, "dXNlcjpwYXNz") == 0, "user:pass -> dXNlcjpwYXNz"); }
+    assert(n == 12, "length should be 12")
+}
+
+// ---- parse_proxy_env tests ----
+
+test "parse_proxy_env no proxy set" {
+    raw {
+        unsetenv("HTTPS_PROXY");
+        unsetenv("https_proxy");
+        unsetenv("HTTP_PROXY");
+        unsetenv("http_proxy");
+        ProxyInfo p;
+    }
+    parse_proxy_env(&p)
+    raw { assert(p.valid == 0, "should not be valid when no proxy set"); }
+}
+
+test "parse_proxy_env basic https" {
+    raw {
+        unsetenv("https_proxy");
+        unsetenv("HTTP_PROXY");
+        unsetenv("http_proxy");
+        setenv("HTTPS_PROXY", "http://proxy.example.com:3128", 1);
+        ProxyInfo p;
+    }
+    parse_proxy_env(&p)
+    raw {
+        assert(p.valid == 1, "should be valid");
+        assert(strcmp(p.host, "proxy.example.com") == 0, "host");
+        assert(strcmp(p.port, "3128") == 0, "port");
+        assert(p.userinfo[0] == 0, "userinfo should be empty");
+        unsetenv("HTTPS_PROXY");
+    }
+}
+
+test "parse_proxy_env with auth" {
+    raw {
+        unsetenv("HTTPS_PROXY");
+        unsetenv("https_proxy");
+        unsetenv("HTTP_PROXY");
+        setenv("http_proxy", "http://user:pass@proxy.local:8080", 1);
+        ProxyInfo p;
+    }
+    parse_proxy_env(&p)
+    raw {
+        assert(p.valid == 1, "should be valid");
+        assert(strcmp(p.host, "proxy.local") == 0, "host");
+        assert(strcmp(p.port, "8080") == 0, "port");
+        assert(strcmp(p.userinfo, "user:pass") == 0, "userinfo");
+        unsetenv("http_proxy");
+    }
+}
+
+test "parse_proxy_env default port" {
+    raw {
+        unsetenv("HTTPS_PROXY");
+        unsetenv("https_proxy");
+        setenv("HTTP_PROXY", "http://myproxy", 1);
+        unsetenv("http_proxy");
+        ProxyInfo p;
+    }
+    parse_proxy_env(&p)
+    raw {
+        assert(p.valid == 1, "should be valid");
+        assert(strcmp(p.host, "myproxy") == 0, "host");
+        assert(strcmp(p.port, "8080") == 0, "port should default to 8080");
+        unsetenv("HTTP_PROXY");
+    }
+}
+
+test "parse_proxy_env strips https scheme" {
+    raw {
+        unsetenv("https_proxy");
+        unsetenv("HTTP_PROXY");
+        unsetenv("http_proxy");
+        setenv("HTTPS_PROXY", "https://secure-proxy:9443", 1);
+        ProxyInfo p;
+    }
+    parse_proxy_env(&p)
+    raw {
+        assert(p.valid == 1, "should be valid");
+        assert(strcmp(p.host, "secure-proxy") == 0, "host");
+        assert(strcmp(p.port, "9443") == 0, "port");
+        unsetenv("HTTPS_PROXY");
+    }
+}

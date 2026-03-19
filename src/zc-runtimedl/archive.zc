@@ -1,0 +1,295 @@
+// archive.zc — tar.gz and zip extraction via zlib
+
+import "./extern/zenc-std/io.zc"
+
+raw {
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include "third_party/zlib/zlib.h"
+
+#ifndef MAX_PATH_LEN
+#define MAX_PATH_LEN 4096
+#endif
+
+#define ZIP_LOCAL_HEADER_SIG 0x04034b50
+
+// Forward declarations for Zen-C helper functions
+size_t parse_octal(char* s, int32_t n);
+uint16_t read_u16_le(uint8_t* p);
+uint32_t read_u32_le(uint8_t* p);
+int32_t mkdirp(char* path);
+int32_t is_all_zero(uint8_t* buf, size_t len);
+int32_t should_be_executable(char* path);
+int32_t is_tar_directory(char typeflag, char* name);
+int32_t is_tar_file(char typeflag);
+void ensure_parent_dir(char* path);
+void build_tar_fullpath(char* dest, char* prefix, char* name, char* out, size_t out_sz);
+void set_file_permissions(char* path);
+}
+
+fn parse_octal(s: char*, n: int) -> usize {
+    let val: usize = 0
+    for (let i: int = 0; i < n; i = i + 1) {
+        let c: int = s[i]
+        if (c >= 48 && c <= 55) {
+            val = val * 8 + (c - 48)
+        } else {
+            break
+        }
+    }
+    return val
+}
+
+fn read_u16_le(p: u8*) -> u16 {
+    let lo: u16 = p[0]
+    let hi: u16 = p[1]
+    return lo | (hi << 8)
+}
+
+fn read_u32_le(p: u8*) -> u32 {
+    let b0: u32 = p[0]
+    let b1: u32 = p[1]
+    let b2: u32 = p[2]
+    let b3: u32 = p[3]
+    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+}
+
+fn mkdirp(path: char*) -> int {
+    let s = String::new(path)
+    let i: usize = 1
+    while (i < s.length()) {
+        if (s.vec.get(i) == '/') {
+            let part = s.substring(0, i)
+            let _p = part.c_str()
+            raw { mkdir(_p, 0755); }
+        }
+        i = i + 1
+    }
+    let _path = s.c_str()
+    raw { return mkdir(_path, 0755); }
+}
+
+fn is_all_zero(buf: u8*, len: usize) -> int {
+    for (let i: usize = 0; i < len; i = i + 1) {
+        if (buf[i] != 0) {
+            return 0
+        }
+    }
+    return 1
+}
+
+fn should_be_executable(path: char*) -> int {
+    let s = String::new(path)
+    if (s.contains_str("/dotnet") || s.ends_with(".sh")) {
+        return 1
+    }
+    return 0
+}
+
+fn is_tar_directory(typeflag: char, name: char*) -> int {
+    if (typeflag == '5') {
+        return 1
+    }
+    if (typeflag == 0) {
+        let s = String::new(name)
+        if (s.ends_with("/")) {
+            return 1
+        }
+    }
+    return 0
+}
+
+fn is_tar_file(typeflag: char) -> int {
+    if (typeflag == '0' || typeflag == 0 || typeflag == '7') {
+        return 1
+    }
+    return 0
+}
+
+fn ensure_parent_dir(_path: char*) {
+    let s = String::new(_path)
+    let last_slash: usize = 0
+    let found = 0
+    let i: usize = 0
+    while (i < s.length()) {
+        if (s.vec.get(i) == '/') {
+            last_slash = i
+            found = 1
+        }
+        i = i + 1
+    }
+    if (found != 0 && last_slash > 0) {
+        let parent = s.substring(0, last_slash)
+        let _parent = parent.c_str()
+        mkdirp(_parent)
+    }
+}
+
+fn build_tar_fullpath(dest: char*, prefix: char*, name: char*, _out: char*, out_sz: usize) {
+    let prefix_s = String::new(prefix)
+    if (prefix_s.is_empty()) {
+        format_into(_out, out_sz, "%s/%s", dest, name)
+    } else {
+        format_into(_out, out_sz, "%s/%s/%s", dest, prefix, name)
+    }
+}
+
+fn set_file_permissions(_path: char*) {
+    if (should_be_executable(_path) == 1) {
+        raw { chmod(_path, 0755); }
+    } else {
+        raw { chmod(_path, 0644); }
+    }
+}
+
+raw {
+static int extract_tar_gz(const char* archive, const char* dest) {
+    gzFile gz = gzopen(archive, "rb");
+    if (!gz) { fprintf(stderr, "Error: cannot open %s\n", archive); return -1; }
+
+    unsigned char header[512];
+    while (gzread(gz, header, 512) == 512) {
+        if (is_all_zero(header, 512)) break;
+
+        char name[256] = {0};
+        memcpy(name, header, 100);
+        char typeflag = header[156];
+        char prefix[156] = {0};
+        memcpy(prefix, header + 345, 155);
+
+        char fullpath[MAX_PATH_LEN];
+        build_tar_fullpath((char*)dest, prefix, name, fullpath, sizeof(fullpath));
+
+        size_t size = parse_octal((char*)header + 124, 12);
+
+        if (is_tar_directory(typeflag, name)) {
+            mkdirp(fullpath);
+        } else if (is_tar_file(typeflag)) {
+            ensure_parent_dir(fullpath);
+
+            FILE *out = fopen(fullpath, "wb");
+            if (!out) {
+                fprintf(stderr, "Error: cannot create %s: %s\n",
+                        fullpath, strerror(errno));
+                size_t blocks = (size + 511) / 512;
+                for (size_t b = 0; b < blocks; b++) {
+                    unsigned char skip[512];
+                    gzread(gz, skip, 512);
+                }
+                continue;
+            }
+            size_t remaining = size;
+            while (remaining > 0) {
+                unsigned char block[512];
+                int r = gzread(gz, block, 512);
+                if (r <= 0) break;
+                size_t to_write = remaining < 512 ? remaining : 512;
+                fwrite(block, 1, to_write, out);
+                remaining -= to_write;
+            }
+            fclose(out);
+            set_file_permissions(fullpath);
+        } else {
+            size_t blocks = (size + 511) / 512;
+            for (size_t b = 0; b < blocks; b++) {
+                unsigned char skip[512];
+                gzread(gz, skip, 512);
+            }
+        }
+    }
+    gzclose(gz);
+    return 0;
+}
+
+// ============================================================================
+// Zip extraction via zlib inflate
+// ============================================================================
+
+static int extract_zip(const char* archive, const char* dest) {
+    FILE* f = fopen(archive, "rb");
+    if (!f) {
+        fprintf(stderr, "Error: cannot open %s\n", archive);
+        return -1;
+    }
+
+    unsigned char hdr[30];
+    while (fread(hdr, 1, 30, f) == 30) {
+        uint32_t sig = read_u32_le(hdr);
+        if (sig != ZIP_LOCAL_HEADER_SIG) break;
+
+        uint16_t method = read_u16_le(hdr + 8);
+        uint32_t comp_size = read_u32_le(hdr + 18);
+        uint32_t uncomp_size = read_u32_le(hdr + 22);
+        uint16_t name_len = read_u16_le(hdr + 26);
+        uint16_t extra_len = read_u16_le(hdr + 28);
+
+        char name[MAX_PATH_LEN] = {0};
+        size_t to_read = name_len < (int)sizeof(name) - 1 ? name_len : sizeof(name) - 1;
+        fread(name, 1, to_read, f);
+        if (name_len > to_read) fseek(f, name_len - to_read, SEEK_CUR);
+
+        if (extra_len > 0) fseek(f, extra_len, SEEK_CUR);
+
+        char fullpath[MAX_PATH_LEN];
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", dest, name);
+
+        if (name_len > 0 && name[name_len - 1] == '/') {
+            mkdirp(fullpath);
+            if (comp_size > 0) fseek(f, comp_size, SEEK_CUR);
+            continue;
+        }
+
+        ensure_parent_dir(fullpath);
+
+        unsigned char* comp_data = (unsigned char*)malloc(comp_size + 1);
+        if (!comp_data) { fclose(f); return -1; }
+        if (comp_size > 0) fread(comp_data, 1, comp_size, f);
+
+        FILE* out = fopen(fullpath, "wb");
+        if (!out) {
+            free(comp_data);
+            continue;
+        }
+
+        if (method == 0) {
+            fwrite(comp_data, 1, comp_size, out);
+        } else if (method == 8) {
+            unsigned char* uncomp_data = (unsigned char*)malloc(uncomp_size + 1);
+            if (!uncomp_data) {
+                free(comp_data);
+                fclose(out);
+                continue;
+            }
+
+            z_stream strm;
+            memset(&strm, 0, sizeof(strm));
+            strm.next_in = comp_data;
+            strm.avail_in = comp_size;
+            strm.next_out = uncomp_data;
+            strm.avail_out = uncomp_size;
+
+            if (inflateInit2(&strm, -MAX_WBITS) == Z_OK) {
+                inflate(&strm, Z_FINISH);
+                inflateEnd(&strm);
+                fwrite(uncomp_data, 1, strm.total_out, out);
+            } else {
+                fprintf(stderr, "Warning: inflate failed for %s\n", name);
+            }
+            free(uncomp_data);
+        } else {
+            fprintf(stderr, "Warning: unsupported compression method %d for %s\n",
+                    method, name);
+        }
+
+        free(comp_data);
+        fclose(out);
+        set_file_permissions(fullpath);
+    }
+
+    fclose(f);
+    return 0;
+}
+} // end raw block

@@ -1,0 +1,188 @@
+// test_archive.zc — Unit tests for archive helper functions
+
+import "./archive.zc"
+
+raw {
+#include <sys/stat.h>
+}
+
+// ---- parse_octal tests ----
+
+test "parse_octal basic" {
+    let result = parse_octal("0755", 4)
+    assert(result == 493, "0755 octal = 493 decimal")
+}
+
+test "parse_octal zero" {
+    let result = parse_octal("0000", 4)
+    assert(result == 0, "0000 octal = 0")
+}
+
+test "parse_octal with trailing space" {
+    let result = parse_octal("100644 ", 7)
+    assert(result == 33188, "100644 octal = 33188 decimal")
+}
+
+test "parse_octal partial" {
+    let result = parse_octal("12", 2)
+    assert(result == 10, "12 octal = 10 decimal")
+}
+
+// ---- read_u16_le tests ----
+
+test "read_u16_le basic" {
+    raw { unsigned char data[] = {0x34, 0x12}; }
+    let result = read_u16_le(data)
+    assert(result == 0x1234, "should read 0x1234 little-endian")
+}
+
+test "read_u16_le zero" {
+    raw { unsigned char data[] = {0x00, 0x00}; }
+    let result = read_u16_le(data)
+    assert(result == 0, "should read 0")
+}
+
+test "read_u16_le max" {
+    raw { unsigned char data[] = {0xFF, 0xFF}; }
+    let result = read_u16_le(data)
+    assert(result == 65535, "should read 0xFFFF")
+}
+
+// ---- read_u32_le tests ----
+
+test "read_u32_le basic" {
+    raw { unsigned char data[] = {0x78, 0x56, 0x34, 0x12}; }
+    let result = read_u32_le(data)
+    assert(result == 0x12345678, "should read 0x12345678 little-endian")
+}
+
+test "read_u32_le zip signature" {
+    raw { unsigned char data[] = {0x50, 0x4b, 0x03, 0x04}; }
+    let result = read_u32_le(data)
+    assert(result == 0x04034b50, "should read ZIP local header signature")
+}
+
+// ---- mkdirp tests ----
+
+test "mkdirp creates directory" {
+    raw {
+        rmdir("/tmp/test_mkdirp_zc/a/b/c");
+        rmdir("/tmp/test_mkdirp_zc/a/b");
+        rmdir("/tmp/test_mkdirp_zc/a");
+        rmdir("/tmp/test_mkdirp_zc");
+    }
+    mkdirp("/tmp/test_mkdirp_zc/a/b/c")
+    raw {
+        struct stat st;
+        assert(stat("/tmp/test_mkdirp_zc/a/b/c", &st) == 0, "directory should exist");
+        rmdir("/tmp/test_mkdirp_zc/a/b/c");
+        rmdir("/tmp/test_mkdirp_zc/a/b");
+        rmdir("/tmp/test_mkdirp_zc/a");
+        rmdir("/tmp/test_mkdirp_zc");
+    }
+}
+
+// ---- is_all_zero tests ----
+
+test "is_all_zero true" {
+    raw { unsigned char buf[8] = {0}; }
+    assert(is_all_zero(buf, 8) == 1, "zero buffer should return 1")
+}
+
+test "is_all_zero false" {
+    raw { unsigned char buf[8] = {0, 0, 0, 1, 0, 0, 0, 0}; }
+    assert(is_all_zero(buf, 8) == 0, "non-zero buffer should return 0")
+}
+
+test "is_all_zero empty" {
+    raw { unsigned char buf[1] = {0}; }
+    assert(is_all_zero(buf, 0) == 1, "empty buffer should return 1")
+}
+
+// ---- should_be_executable tests ----
+
+test "should_be_executable dotnet binary" {
+    assert(should_be_executable("/opt/runtime/linux/x64/dotnet") == 1, "dotnet binary should be executable")
+}
+
+test "should_be_executable shell script" {
+    assert(should_be_executable("/opt/runtime/setup.sh") == 1, ".sh should be executable")
+}
+
+test "should_be_executable dll" {
+    assert(should_be_executable("/opt/runtime/System.Runtime.dll") == 0, ".dll should not be executable")
+}
+
+test "should_be_executable json" {
+    assert(should_be_executable("/opt/runtime/config.json") == 0, ".json should not be executable")
+}
+
+// ---- is_tar_directory tests ----
+
+test "is_tar_directory typeflag 5" {
+    assert(is_tar_directory('5', "somedir/") == 1, "typeflag 5 is directory")
+}
+
+test "is_tar_directory trailing slash" {
+    raw { char zero = 0; }
+    assert(is_tar_directory(zero, "somedir/") == 1, "trailing slash with typeflag 0 is directory")
+}
+
+test "is_tar_directory regular file" {
+    assert(is_tar_directory('0', "somefile.txt") == 0, "regular file is not directory")
+}
+
+// ---- is_tar_file tests ----
+
+test "is_tar_file typeflag 0" {
+    assert(is_tar_file('0') == 1, "typeflag 0 is file")
+}
+
+test "is_tar_file typeflag null" {
+    raw { char zero = 0; }
+    assert(is_tar_file(zero) == 1, "typeflag null is file")
+}
+
+test "is_tar_file typeflag 7" {
+    assert(is_tar_file('7') == 1, "typeflag 7 is file")
+}
+
+test "is_tar_file typeflag 5" {
+    assert(is_tar_file('5') == 0, "typeflag 5 (directory) is not file")
+}
+
+// ---- ensure_parent_dir tests ----
+
+test "ensure_parent_dir creates parent" {
+    raw {
+        rmdir("/tmp/test_epd_zc/parent");
+        rmdir("/tmp/test_epd_zc");
+    }
+    ensure_parent_dir("/tmp/test_epd_zc/parent/file.txt")
+    raw {
+        struct stat st;
+        assert(stat("/tmp/test_epd_zc/parent", &st) == 0, "parent directory should exist");
+        rmdir("/tmp/test_epd_zc/parent");
+        rmdir("/tmp/test_epd_zc");
+    }
+}
+
+// ---- build_tar_fullpath tests ----
+
+test "build_tar_fullpath no prefix" {
+    raw { char out[4096]; }
+    build_tar_fullpath("/dest", "", "file.txt", out, 4096)
+    raw { assert(strcmp(out, "/dest/file.txt") == 0, "should be dest/name"); }
+}
+
+test "build_tar_fullpath with prefix" {
+    raw { char out[4096]; }
+    build_tar_fullpath("/dest", "usr/local", "bin/app", out, 4096)
+    raw { assert(strcmp(out, "/dest/usr/local/bin/app") == 0, "should be dest/prefix/name"); }
+}
+
+test "build_tar_fullpath empty name" {
+    raw { char out[4096]; }
+    build_tar_fullpath("/dest", "", "", out, 4096)
+    raw { assert(strcmp(out, "/dest/") == 0, "should be dest/empty"); }
+}
