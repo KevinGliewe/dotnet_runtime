@@ -1,5 +1,7 @@
 // archive.zc — tar.gz and zip extraction via zlib
 
+import "./extern/zenc-std/io.zc"
+
 raw {
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +21,13 @@ size_t parse_octal(char* s, int32_t n);
 uint16_t read_u16_le(uint8_t* p);
 uint32_t read_u32_le(uint8_t* p);
 int32_t mkdirp(char* path);
+int32_t is_all_zero(uint8_t* buf, size_t len);
+int32_t should_be_executable(char* path);
+int32_t is_tar_directory(char typeflag, char* name);
+int32_t is_tar_file(char typeflag);
+void ensure_parent_dir(char* path);
+void build_tar_fullpath(char* dest, char* prefix, char* name, char* out, size_t out_sz);
+void set_file_permissions(char* path);
 }
 
 fn parse_octal(s: char*, n: int) -> usize {
@@ -36,29 +45,104 @@ fn parse_octal(s: char*, n: int) -> usize {
 }
 
 fn read_u16_le(p: u8*) -> u16 {
-    raw {
-        return (uint16_t)(p[0] | (p[1] << 8));
-    }
+    let lo: u16 = p[0]
+    let hi: u16 = p[1]
+    return lo | (hi << 8)
 }
 
 fn read_u32_le(p: u8*) -> u32 {
-    raw {
-        return (uint32_t)(p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24));
-    }
+    let b0: u32 = p[0]
+    let b1: u32 = p[1]
+    let b2: u32 = p[2]
+    let b3: u32 = p[3]
+    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
 }
 
 fn mkdirp(path: char*) -> int {
-    raw {
-        char tmp[MAX_PATH_LEN];
-        snprintf(tmp, sizeof(tmp), "%s", path);
-        for (char *p = tmp + 1; *p; p++) {
-            if (*p == '/') {
-                *p = 0;
-                mkdir(tmp, 0755);
-                *p = '/';
-            }
+    let s = String::new(path)
+    let i: usize = 1
+    while (i < s.length()) {
+        if (s.vec.get(i) == '/') {
+            let part = s.substring(0, i)
+            let _p = part.c_str()
+            raw { mkdir(_p, 0755); }
         }
-        return mkdir(tmp, 0755);
+        i = i + 1
+    }
+    let _path = s.c_str()
+    raw { return mkdir(_path, 0755); }
+}
+
+fn is_all_zero(buf: u8*, len: usize) -> int {
+    for (let i: usize = 0; i < len; i = i + 1) {
+        if (buf[i] != 0) {
+            return 0
+        }
+    }
+    return 1
+}
+
+fn should_be_executable(path: char*) -> int {
+    let s = String::new(path)
+    if (s.contains_str("/dotnet") || s.ends_with(".sh")) {
+        return 1
+    }
+    return 0
+}
+
+fn is_tar_directory(typeflag: char, name: char*) -> int {
+    if (typeflag == '5') {
+        return 1
+    }
+    if (typeflag == 0) {
+        let s = String::new(name)
+        if (s.ends_with("/")) {
+            return 1
+        }
+    }
+    return 0
+}
+
+fn is_tar_file(typeflag: char) -> int {
+    if (typeflag == '0' || typeflag == 0 || typeflag == '7') {
+        return 1
+    }
+    return 0
+}
+
+fn ensure_parent_dir(_path: char*) {
+    let s = String::new(_path)
+    let last_slash: usize = 0
+    let found = 0
+    let i: usize = 0
+    while (i < s.length()) {
+        if (s.vec.get(i) == '/') {
+            last_slash = i
+            found = 1
+        }
+        i = i + 1
+    }
+    if (found != 0 && last_slash > 0) {
+        let parent = s.substring(0, last_slash)
+        let _parent = parent.c_str()
+        mkdirp(_parent)
+    }
+}
+
+fn build_tar_fullpath(dest: char*, prefix: char*, name: char*, _out: char*, out_sz: usize) {
+    let prefix_s = String::new(prefix)
+    if (prefix_s.is_empty()) {
+        format_into(_out, out_sz, "%s/%s", dest, name)
+    } else {
+        format_into(_out, out_sz, "%s/%s/%s", dest, prefix, name)
+    }
+}
+
+fn set_file_permissions(_path: char*) {
+    if (should_be_executable(_path) == 1) {
+        raw { chmod(_path, 0755); }
+    } else {
+        raw { chmod(_path, 0644); }
     }
 }
 
@@ -69,9 +153,7 @@ static int extract_tar_gz(const char* archive, const char* dest) {
 
     unsigned char header[512];
     while (gzread(gz, header, 512) == 512) {
-        int all_zero = 1;
-        for (int i = 0; i < 512; i++) { if (header[i]) { all_zero = 0; break; } }
-        if (all_zero) break;
+        if (is_all_zero(header, 512)) break;
 
         char name[256] = {0};
         memcpy(name, header, 100);
@@ -80,20 +162,14 @@ static int extract_tar_gz(const char* archive, const char* dest) {
         memcpy(prefix, header + 345, 155);
 
         char fullpath[MAX_PATH_LEN];
-        if (prefix[0])
-            snprintf(fullpath, sizeof(fullpath), "%s/%s/%s", dest, prefix, name);
-        else
-            snprintf(fullpath, sizeof(fullpath), "%s/%s", dest, name);
+        build_tar_fullpath((char*)dest, prefix, name, fullpath, sizeof(fullpath));
 
         size_t size = parse_octal((char*)header + 124, 12);
 
-        if (typeflag == '5' || (typeflag == 0 && name[strlen(name)-1] == '/')) {
+        if (is_tar_directory(typeflag, name)) {
             mkdirp(fullpath);
-        } else if (typeflag == '0' || typeflag == 0 || typeflag == '7') {
-            char parent[MAX_PATH_LEN];
-            snprintf(parent, sizeof(parent), "%s", fullpath);
-            char *last_slash = strrchr(parent, '/');
-            if (last_slash) { *last_slash = 0; mkdirp(parent); }
+        } else if (is_tar_file(typeflag)) {
+            ensure_parent_dir(fullpath);
 
             FILE *out = fopen(fullpath, "wb");
             if (!out) {
@@ -116,10 +192,7 @@ static int extract_tar_gz(const char* archive, const char* dest) {
                 remaining -= to_write;
             }
             fclose(out);
-            if (strstr(fullpath, "/dotnet") || strstr(fullpath, ".sh"))
-                chmod(fullpath, 0755);
-            else
-                chmod(fullpath, 0644);
+            set_file_permissions(fullpath);
         } else {
             size_t blocks = (size + 511) / 512;
             for (size_t b = 0; b < blocks; b++) {
@@ -170,11 +243,7 @@ static int extract_zip(const char* archive, const char* dest) {
             continue;
         }
 
-        char parent[MAX_PATH_LEN];
-        strncpy(parent, fullpath, sizeof(parent) - 1);
-        parent[sizeof(parent) - 1] = 0;
-        char* last_slash = strrchr(parent, '/');
-        if (last_slash) { *last_slash = 0; mkdirp(parent); }
+        ensure_parent_dir(fullpath);
 
         unsigned char* comp_data = (unsigned char*)malloc(comp_size + 1);
         if (!comp_data) { fclose(f); return -1; }
@@ -218,11 +287,7 @@ static int extract_zip(const char* archive, const char* dest) {
 
         free(comp_data);
         fclose(out);
-
-        if (strstr(fullpath, "/dotnet") || strstr(fullpath, ".sh"))
-            chmod(fullpath, 0755);
-        else
-            chmod(fullpath, 0644);
+        set_file_permissions(fullpath);
     }
 
     fclose(f);
