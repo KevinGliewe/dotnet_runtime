@@ -23,6 +23,12 @@ jobs:
           chmod +x zc-boot.com
           ./zc-boot.com
 
+      - name: Upgrade Zen-C compiler to v0.4.3
+        run: |
+          cd src/zc-runtimedl
+          curl -L -o usr/bin/zc.com https://github.com/zenc-lang/zenc/releases/download/v0.4.3/zc.com
+          chmod +x usr/bin/zc.com
+
       - name: Build APE
         run: |
           cd src/zc-runtimedl
