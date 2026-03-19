@@ -49,11 +49,19 @@ jobs:
           cd src/zc-runtimedl
           make all
 
-      - name: Upload APE binary
+      - name: Publish APE binary
+        run: |
+          mkdir -p publish
+          cp src/zc-runtimedl/out/runtimedl.com publish/
+          cp src/zc-runtimedl/usr/bin/ape-x86_64.elf publish/
+          cd publish
+          tar -czf ../runtimedl-ape.tar.gz *
+
+      - name: Upload APE archive
         uses: actions/upload-artifact@v4
         with:
           name: runtimedl-ape
-          path: src/zc-runtimedl/out/runtimedl.com
+          path: runtimedl-ape.tar.gz
 
       - name: Upload APE loader
         uses: actions/upload-artifact@v4
@@ -87,16 +95,13 @@ jobs:
     runs-on: ${{ matrix.runner }}
 
     steps:
-      - name: Download APE binary
+      - name: Download APE archive
         uses: actions/download-artifact@v4
         with:
           name: runtimedl-ape
 
-      - name: Download APE loader
-        if: runner.os == 'Linux'
-        uses: actions/download-artifact@v4
-        with:
-          name: ape-loader
+      - name: Extract APE archive
+        run: tar -xzf runtimedl-ape.tar.gz
 
       - name: Setup APE (Linux)
         if: runner.os == 'Linux'
