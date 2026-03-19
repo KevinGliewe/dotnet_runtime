@@ -159,6 +159,10 @@ jobs:
         run: |
           & .\bin\runtimedl.exe --runtime-type runtime --platform ${{ matrix.platform }} --architecture ${{ matrix.arch }} --version-pattern "^8.0.0" --output ./test-runtime
 
+      - name: Fix dotnet permissions (Unix)
+        if: runner.os != 'Windows'
+        run: chmod +x "${{ matrix.dotnet_path }}"
+
       - name: Verify runtime
         shell: bash
         run: |
