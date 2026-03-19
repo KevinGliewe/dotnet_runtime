@@ -67,11 +67,6 @@ jobs:
             arch: x64
             expected_arch: x64
             dotnet_path: ./test-runtime/linux/x64/dotnet
-          - runner: macos-13
-            platform: macos
-            arch: x64
-            expected_arch: x64
-            dotnet_path: ./test-runtime/macos/x64/dotnet
           - runner: macos-latest
             platform: macos
             arch: arm64
