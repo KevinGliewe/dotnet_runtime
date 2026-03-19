@@ -1,6 +1,7 @@
 // platform.zc — Platform/architecture detection and RID mapping
 
 import "./extern/zenc-std/string.zc"
+import "./extern/zenc-std/io.zc"
 
 raw {
 #include <string.h>
@@ -64,11 +65,12 @@ fn build_rid(platform: char*, arch: char*, out: char*, out_sz: int) {
         let idx = dash.unwrap()
         let base = arch_str.substring(0, idx)
         let base_rid = arch_to_rid(base.c_str())
-        raw { snprintf(out, out_sz, "linux-musl-%s", base_rid); return; }
+        format_into(out, out_sz, "linux-musl-%s", base_rid)
+        raw { return; }
     }
     let plat_rid = platform_to_rid(platform)
     let arch_rid = arch_to_rid(arch)
-    raw { snprintf(out, out_sz, "%s-%s", plat_rid, arch_rid); }
+    format_into(out, out_sz, "%s-%s", plat_rid, arch_rid)
 }
 
 fn type_to_json_key(runtime_type: char*) -> char* {

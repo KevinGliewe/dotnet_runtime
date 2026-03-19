@@ -68,9 +68,18 @@ out/test_semver.com: test_semver.zc semver.zc capture-cc.sh | deps
 	$(CC) $(CFLAGS) -o $@ out/transpiled.c
 	@echo "Built: $@"
 
-test: out/test_semver.com
+out/test_platform.com: test_platform.zc platform.zc capture-cc.sh | deps
+	@mkdir -p out
+	@echo "Building platform tests..."
+	$(ZC) build --cc $(CAPTURE_CC) -o $@ test_platform.zc 2>/dev/null || true
+	@test -f out/transpiled.c || { echo "Error: transpilation failed"; exit 1; }
+	$(CC) $(CFLAGS) -o $@ out/transpiled.c
+	@echo "Built: $@"
+
+test: out/test_semver.com out/test_platform.com
 	@echo "Running tests..."
 	./out/test_semver.com
+	./out/test_platform.com
 	@echo "All tests passed."
 
 capture-cc.sh:

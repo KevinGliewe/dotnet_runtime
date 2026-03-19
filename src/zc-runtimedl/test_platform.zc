@@ -1,0 +1,70 @@
+import "./platform.zc"
+
+test "platform_to_rid linux" {
+    let result = platform_to_rid("linux")
+    let s = String::new(result)
+    assert(s.eq_str("linux"), "linux -> linux")
+}
+
+test "platform_to_rid windows" {
+    let result = platform_to_rid("windows")
+    let s = String::new(result)
+    assert(s.eq_str("win"), "windows -> win")
+}
+
+test "platform_to_rid macos" {
+    let result = platform_to_rid("macos")
+    let s = String::new(result)
+    assert(s.eq_str("osx"), "macos -> osx")
+}
+
+test "arch_to_rid arm32" {
+    let result = arch_to_rid("arm32")
+    let s = String::new(result)
+    assert(s.eq_str("arm"), "arm32 -> arm")
+}
+
+test "arch_to_rid x64 passthrough" {
+    let result = arch_to_rid("x64")
+    let s = String::new(result)
+    assert(s.eq_str("x64"), "x64 -> x64")
+}
+
+test "build_rid linux x64" {
+    raw { char buf[64]; }
+    build_rid("linux", "x64", buf, 64)
+    let s = String::new(buf)
+    assert(s.eq_str("linux-x64"), "linux + x64 -> linux-x64")
+}
+
+test "build_rid windows arm64" {
+    raw { char buf[64]; }
+    build_rid("windows", "arm64", buf, 64)
+    let s = String::new(buf)
+    assert(s.eq_str("win-arm64"), "windows + arm64 -> win-arm64")
+}
+
+test "build_rid alpine" {
+    raw { char buf[64]; }
+    build_rid("linux", "x64-alpine", buf, 64)
+    let s = String::new(buf)
+    assert(s.eq_str("linux-musl-x64"), "linux + x64-alpine -> linux-musl-x64")
+}
+
+test "type_to_json_key sdk" {
+    let result = type_to_json_key("sdk")
+    let s = String::new(result)
+    assert(s.eq_str("sdk"), "sdk -> sdk")
+}
+
+test "type_to_json_key runtime-aspnetcore" {
+    let result = type_to_json_key("runtime-aspnetcore")
+    let s = String::new(result)
+    assert(s.eq_str("aspnetcore-runtime"), "runtime-aspnetcore -> aspnetcore-runtime")
+}
+
+test "type_to_file_prefix runtime" {
+    let result = type_to_file_prefix("runtime")
+    let s = String::new(result)
+    assert(s.eq_str("dotnet-runtime-"), "runtime -> dotnet-runtime-")
+}
