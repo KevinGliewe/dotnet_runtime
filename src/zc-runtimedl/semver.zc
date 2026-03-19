@@ -2,13 +2,19 @@
 
 import "./extern/zenc-std/string.zc"
 
-raw {
-#include <stdlib.h>
-}
-
 fn _str_to_int(s: String*) -> int {
     let result: int = 0
-    raw { result = atoi(s->vec.data); }
+    let len = s.length()
+    let p = s.c_str()
+    for (let i: usize = 0; i < len; i = i + 1) {
+        let c: int = 0
+        raw { c = (unsigned char)p[i]; }
+        if (c >= 48 && c <= 57) {
+            result = result * 10 + (c - 48)
+        } else {
+            break
+        }
+    }
     return result
 }
 
@@ -122,18 +128,4 @@ fn semver_satisfies(ver: SemVer*, range: char*, include_pre: int) -> int {
     if (op.eq_str("~"))  { return c >= 0 && ver.major == rv.major && ver.minor == rv.minor }
 
     return 0
-}
-
-// Backward-compat C wrapper for runtimedb.zc raw blocks
-raw {
-SemVer parse_semver(char* s);  // forward declaration
-
-static int _sv_parse(const char *s, SemVer *v) {
-    if (!s) return -1;
-    // Validate: need at least "X.Y" format
-    int maj = 0, min = 0;
-    if (sscanf(s, "%d.%d", &maj, &min) < 2) return -1;
-    *v = parse_semver((char*)s);
-    return 0;
-}
 }

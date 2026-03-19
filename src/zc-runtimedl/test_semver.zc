@@ -25,6 +25,21 @@ test "parse two-part version" {
     assert(v.patch == 0, "patch should be 0")
 }
 
+test "parse version with zero patch" {
+    let v = parse_semver("1.0.0")
+    assert(v.major == 1, "major should be 1")
+    assert(v.minor == 0, "minor should be 0")
+    assert(v.patch == 0, "patch should be 0")
+    assert(v.prerelease.is_empty(), "prerelease should be empty")
+}
+
+test "parse version major only format" {
+    let v = parse_semver("5")
+    assert(v.major == 5, "major should be 5")
+    assert(v.minor == 0, "minor should be 0")
+    assert(v.patch == 0, "patch should be 0")
+}
+
 test "compare major difference" {
     let a = parse_semver("9.0.0")
     let b = parse_semver("8.99.99")
@@ -47,6 +62,12 @@ test "compare release beats prerelease" {
     let a = parse_semver("9.0.0")
     let b = parse_semver("9.0.0-preview.1")
     assert(semver_cmp(&a, &b) > 0, "9.0.0 > 9.0.0-preview.1")
+}
+
+test "compare prerelease ordering" {
+    let a = parse_semver("9.0.0-alpha")
+    let b = parse_semver("9.0.0-beta")
+    assert(semver_cmp(&a, &b) < 0, "9.0.0-alpha < 9.0.0-beta")
 }
 
 test "satisfies greater than" {
@@ -91,15 +112,12 @@ test "prerelease included with flag" {
     assert(semver_satisfies(&v, "^9.0.0-alpha.0", 1) == 1, "9.0.0-rc.1 satisfies ^9.0.0-alpha.0 with flag")
 }
 
-test "backward compat _sv_parse" {
-    raw {
-        SemVer v;
-        assert(_sv_parse("8.0.25", &v) == 0, "_sv_parse should succeed");
-        assert(v.major == 8, "_sv_parse major");
-        assert(v.minor == 0, "_sv_parse minor");
-        assert(v.patch == 25, "_sv_parse patch");
-        assert(_sv_parse(NULL, &v) == -1, "_sv_parse NULL should fail");
-        assert(_sv_parse("abc", &v) == -1, "_sv_parse abc should fail");
-        assert(_sv_parse("1", &v) == -1, "_sv_parse 1 should fail");
-    }
+test "satisfies tilde same minor" {
+    let v = parse_semver("8.0.25")
+    assert(semver_satisfies(&v, "~8.0.0", 0) == 1, "8.0.25 satisfies ~8.0.0")
+}
+
+test "does not satisfy caret wrong major" {
+    let v = parse_semver("9.0.0")
+    assert(semver_satisfies(&v, "^8.0.0", 0) == 0, "9.0.0 does NOT satisfy ^8.0.0")
 }
