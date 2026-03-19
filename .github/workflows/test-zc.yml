@@ -101,6 +101,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo cp ape-x86_64.elf /usr/bin/ape
+          sudo chmod +x /usr/bin/ape
           sudo sh -c "echo ':APE:M::MZqFpD::/usr/bin/ape:' >/proc/sys/fs/binfmt_misc/register" || true
           chmod +x runtimedl.com
 
